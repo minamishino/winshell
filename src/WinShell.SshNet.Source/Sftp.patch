@@ -1,0 +1,131 @@
+diff --git a/src/Renci.SshNet/Sftp/SftpSession.cs b/src/Renci.SshNet/Sftp/SftpSession.cs
+index 6b21980..54d7663 100644
+--- a/src/Renci.SshNet/Sftp/SftpSession.cs
++++ b/src/Renci.SshNet/Sftp/SftpSession.cs
+@@ -266,0 +267 @@ protected override void OnDataReceived(ArraySegment<byte> data)
++                    ValidatePacketLength(packetLength);
+@@ -293,7 +294,3 @@ protected override void OnDataReceived(ArraySegment<byte> data)
+-            // The buffer already had some data. Append the new data and
+-            // proceed with reading out packets.
+-            _buffer.EnsureAvailableSpace(data.Count);
+-            data.AsSpan().CopyTo(_buffer.AvailableSpan);
+-            _buffer.Commit(data.Count);
+-
+-            while (_buffer.ActiveLength >= 4)
++            // Complete only this packet before appending another. A callback may
++            // contain multiple legal packets whose combined size exceeds the budget.
++            while (data.Count > 0)
+@@ -301,6 +298,12 @@ protected override void OnDataReceived(ArraySegment<byte> data)
+-                data = new ArraySegment<byte>(
+-                    _buffer.DangerousGetUnderlyingBuffer(),
+-                    _buffer.ActiveStartOffset,
+-                    _buffer.ActiveLength);
+-
+-                var packetLength = BinaryPrimitives.ReadInt32BigEndian(data);
++                if (_buffer.ActiveLength < 4)
++                {
++                    var headerBytes = Math.Min(4 - _buffer.ActiveLength, data.Count);
++                    _buffer.EnsureAvailableSpace(headerBytes);
++                    data.AsSpan(0, headerBytes).CopyTo(_buffer.AvailableSpan);
++                    _buffer.Commit(headerBytes);
++                    data = data.Slice(headerBytes);
++                    if (_buffer.ActiveLength < 4)
++                    {
++                        return;
++                    }
++                }
+@@ -308 +311,8 @@ protected override void OnDataReceived(ArraySegment<byte> data)
+-                if (data.Count - 4 < packetLength)
++                var packetLength = BinaryPrimitives.ReadInt32BigEndian(_buffer.ActiveReadOnlySpan);
++                ValidatePacketLength(packetLength);
++                var packetBytes = Math.Min(4 + packetLength - _buffer.ActiveLength, data.Count);
++                _buffer.EnsureAvailableSpace(packetBytes);
++                data.AsSpan(0, packetBytes).CopyTo(_buffer.AvailableSpan);
++                _buffer.Commit(packetBytes);
++                data = data.Slice(packetBytes);
++                if (_buffer.ActiveLength < 4 + packetLength)
+@@ -310 +320 @@ protected override void OnDataReceived(ArraySegment<byte> data)
+-                    break;
++                    return;
+@@ -313,4 +323,6 @@ protected override void OnDataReceived(ArraySegment<byte> data)
+-                // Note: the packet data in the buffer is safe to read from
+-                // only for the duration of this load. If it needs to be stored,
+-                // callees should make their own copy.
+-                _ = TryLoadSftpMessage(data.Slice(4, packetLength));
++                // The response must copy any bytes it retains before we discard.
++                if (!TryLoadSftpMessage(new ArraySegment<byte>(
++                    _buffer.DangerousGetUnderlyingBuffer(), _buffer.ActiveStartOffset + 4, packetLength)))
++                {
++                    return;
++                }
+@@ -321,0 +334,9 @@ protected override void OnDataReceived(ArraySegment<byte> data)
++        private static void ValidatePacketLength(int packetLength)
++        {
++            // Payload includes message type and response fields, but excludes its four-byte length.
++            if (packetLength < 1 || packetLength > 1024 * 1024)
++            {
++                throw new SshException("SFTP payload exceeds the receive budget or has an invalid length.");
++            }
++        }
++
+diff --git a/src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs b/src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs
+index 0e6c9f4..e1b9cc8 100644
+--- a/src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs
++++ b/src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs
+@@ -4,0 +5,2 @@
++using Renci.SshNet.Common;
++
+@@ -31,0 +34,6 @@ protected override void LoadData()
++            var minimumEntryBytes = SupportsLongName(ProtocolVersion) ? 12 : 8;
++            if (Count > 1000 || Count > (DataStream.Length - DataStream.Position) / minimumEntryBytes)
++            {
++                throw new SshException("SFTP NAME count exceeds the receive budget or remaining payload.");
++            }
++
+@@ -36 +44 @@ protected override void LoadData()
+-                var fileName = ReadString(Encoding);
++                var fileName = ReadBoundedName();
+@@ -39 +47 @@ protected override void LoadData()
+-                    _ = ReadString(Encoding); // skip longname
++                    _ = ReadBoundedName(); // skip longname
+@@ -45,0 +54,13 @@ protected override void LoadData()
++        private string ReadBoundedName()
++        {
++            var position = DataStream.Position;
++            var byteLength = ReadUInt32();
++            if (byteLength > 4096 || byteLength > DataStream.Length - DataStream.Position)
++            {
++                throw new SshException("SFTP NAME string exceeds the receive budget or remaining payload.");
++            }
++
++            DataStream.Position = position;
++            return ReadString(Encoding);
++        }
++
+diff --git a/src/Renci.SshNet/Sftp/SftpFileAttributes.cs b/src/Renci.SshNet/Sftp/SftpFileAttributes.cs
+index 70ca0dd..3ee8071 100644
+--- a/src/Renci.SshNet/Sftp/SftpFileAttributes.cs
++++ b/src/Renci.SshNet/Sftp/SftpFileAttributes.cs
+@@ -823 +823,8 @@ internal static SftpFileAttributes FromBytes(SshDataStream stream)
+-                var extendedCount = (int)stream.ReadUInt32();
++                var declaredCount = stream.ReadUInt32();
++                // Each extension has at least two four-byte string length prefixes.
++                if (declaredCount > (stream.Length - stream.Position) / 8)
++                {
++                    throw new SshException("SFTP attribute count exceeds the remaining payload.");
++                }
++
++                var extendedCount = (int)declaredCount;
+diff --git a/src/Renci.SshNet/Sftp/Requests/SftpReadRequest.cs b/src/Renci.SshNet/Sftp/Requests/SftpReadRequest.cs
+index b413b4a..79ff834 100644
+--- a/src/Renci.SshNet/Sftp/Requests/SftpReadRequest.cs
++++ b/src/Renci.SshNet/Sftp/Requests/SftpReadRequest.cs
+@@ -3,0 +4 @@
++using Renci.SshNet.Common;
+@@ -71,0 +73,6 @@ public override void Complete(SftpResponse response)
++                // Both synchronous and asynchronous callers copy in this callback.
++                if (dataResponse.Data.Count > Length)
++                {
++                    throw new SshException("SFTP DATA exceeds the corresponding READ length.");
++                }
++
