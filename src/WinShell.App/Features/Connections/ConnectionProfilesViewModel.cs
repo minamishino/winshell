@@ -159,6 +159,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     private static string DescribeFailure(Exception exception) => exception switch
     {
         OperationCanceledException => "操作已取消。",
+        CredentialOperationUnconfirmedException => "Windows 凭据写入或删除结果尚未确认，请检查凭据状态后再操作。",
         UnauthorizedAccessException => "没有访问配置或凭据的权限。",
         System.ComponentModel.Win32Exception => "Windows 凭据管理器操作失败，请检查当前用户权限。",
         InvalidDataException => "配置文件无效或版本不受支持，未覆盖原文件。",
