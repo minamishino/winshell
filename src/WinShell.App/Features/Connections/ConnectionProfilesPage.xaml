@@ -7,14 +7,15 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <StackPanel Spacing="4">
             <TextBlock Text="连接配置" Style="{ThemeResource TitleTextBlockStyle}"/>
-            <TextBlock Text="管理连接信息和 Windows 凭据。当前阶段尚不提供网络连接或终端。" TextWrapping="Wrap"/>
+            <TextBlock Text="管理连接信息和 Windows 凭据；选择已保存的 SSH 配置可连接。交互式终端尚未接入。" TextWrapping="Wrap"/>
         </StackPanel>
         <Grid Grid.Row="1" ColumnSpacing="12">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBox PlaceholderText="搜索名称、分组或主机" AutomationProperties.Name="搜索连接" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             <Button Grid.Column="1" Content="新建连接" Click="NewProfile_Click" IsEnabled="{Binding CanEdit}"/>
             <Button Grid.Column="2" Content="重新加载" Click="Reload_Click" IsEnabled="{Binding CanEdit}"/>
             <Button Grid.Column="3" Content="打开详情" Click="OpenDetails_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="打开所选连接的只读详情"/>
+            <Button Grid.Column="4" Content="连接 SSH" Click="ConnectSsh_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="连接列表所选已保存的 SSH 配置"/>
         </Grid>
         <Grid Grid.Row="2" ColumnSpacing="24">
             <Grid.ColumnDefinitions><ColumnDefinition Width="2*" MinWidth="200"/><ColumnDefinition Width="3*" MinWidth="300"/></Grid.ColumnDefinitions>
