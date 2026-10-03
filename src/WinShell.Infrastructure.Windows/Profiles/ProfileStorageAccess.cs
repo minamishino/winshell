@@ -7,7 +7,10 @@ public static class ProfileStorageAccess
 {
     private static readonly string[] ConfigurationFileNames = ["profiles.json", "profiles.backup.json", "profiles.lock"];
 
-    public static void EnsureCurrentUserAccess(string directoryPath)
+    public static void EnsureCurrentUserAccess(string directoryPath) =>
+        EnsureCurrentUserAccess(directoryPath, ConfigurationFileNames);
+
+    internal static void EnsureCurrentUserAccess(string directoryPath, IReadOnlyList<string> configurationFileNames)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
         var directory = new DirectoryInfo(directoryPath);
@@ -17,7 +20,7 @@ public static class ProfileStorageAccess
         }
 
         // Check every known path before changing the directory ACL, which may propagate to children.
-        foreach (var fileName in ConfigurationFileNames)
+        foreach (var fileName in configurationFileNames)
         {
             IsRegularFileOrMissing(Path.Combine(directory.FullName, fileName));
         }
