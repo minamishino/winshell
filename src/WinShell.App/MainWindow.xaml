@@ -1,0 +1,13 @@
+<Window
+    x:Class="WinShell.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="WinShell">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <StackPanel Margin="32" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Text="WinShell" Style="{ThemeResource TitleTextBlockStyle}" />
+            <TextBlock Text="原生 Windows SSH 工作台" />
+            <TextBlock Text="应用基础已启动，连接与终端功能尚未实现。" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Window>
