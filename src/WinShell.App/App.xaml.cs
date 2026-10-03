@@ -3,6 +3,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
+using WinShell.App.Features.Ssh;
+using WinShell.Core.Ssh;
+using WinShell.Infrastructure.Ssh;
+using WinShell.Infrastructure.Windows.Ssh;
 using WinShell.Core.Credentials;
 using WinShell.Core.Profiles;
 using WinShell.Infrastructure.Windows.Credentials;
@@ -17,6 +21,7 @@ public partial class App : Application
     private ConnectionProfilesViewModel? _profiles;
     private WorkspaceViewModel? _workspace;
     private ConnectionProfilesPage? _connectionsPage;
+    private SshSessionsPage? _sshPage;
     private Task? _shutdown;
 
     public App() => InitializeComponent();
@@ -31,12 +36,17 @@ public partial class App : Application
             builder.Services.AddSingleton<ConnectionProfilesViewModel>();
             builder.Services.AddSingleton<WorkspaceViewModel>();
             builder.Services.AddSingleton<ConnectionProfilesPage>();
+            builder.Services.AddSingleton<IKnownHostRepository>(_ => new JsonKnownHostRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
+            builder.Services.AddSingleton<NativeDialogService>();
+            builder.Services.AddSingleton<SshSessionsPage>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync();
             _profiles = _host.Services.GetRequiredService<ConnectionProfilesViewModel>();
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
+            _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -63,7 +73,8 @@ public partial class App : Application
         var pageActions = AttemptAsync(() => _connectionsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles);
+        var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
