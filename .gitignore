@@ -1,0 +1,43 @@
+# Local build output and IDE state
+**/bin/
+**/obj/
+.vs/
+.idea/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.log
+*.dmp
+*.etl
+
+# Local toolchains and temporary files
+.tools/
+.tmp/
+
+# Local credentials, connection data, and signing material
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+*.ppk
+appsettings.Local.json
+profiles.local.json
+known_hosts.local
+
+# Local documentation and removed test assets
+/docs/
+/tests/
+/prototypes/
+/AGENTS.md
+/README.md
+/src/WinShell.Infrastructure.Ssh/README.md
+/src/WinShell.App/Features/Docker/DockerPage.UiProbe.cs
+/src/WinShell.App/FtpRuntimeVerification.cs
+/src/WinShell.App/SftpRuntimeVerification.cs
+/src/WinShell.App/TunnelProfileCleanupVerification.cs
+/src/WinShell.App/TunnelRuntimeVerification.cs
+/src/WinShell.Infrastructure.Windows/Properties/AssemblyInfo.cs
