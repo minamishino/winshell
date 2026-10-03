@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/WinShell.Core/WinShell.Core.csproj" />
+    <Project Path="src/WinShell.App/WinShell.App.csproj" />
+  </Folder>
+</Solution>
