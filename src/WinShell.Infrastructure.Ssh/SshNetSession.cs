@@ -12,25 +12,27 @@ internal sealed class SshNetSession : ISshScriptSession
     private Exception? _scriptSessionFailure;
     internal TimeSpan ScriptTimeout { get; set; } = TimeSpan.FromSeconds(30);
     private readonly SshClient _client;
-    private readonly SshHostKey? _trustedKey;
+    private readonly IDisposable? _admission;
+    private readonly SshHostKeyPolicy _hostKey;
     private readonly object _closeLock = new();
     private readonly TaskCompletionSource _connectionSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _closeTask;
     private readonly CancellationTokenSource _watchCancellation = new();
     private Task _watchTask = Task.CompletedTask;
 
-    internal SshNetSession(SshClient client, SshHostKey? trustedKey)
+    internal SshNetSession(SshClient client, SshHostKey? trustedKey, IDisposable? admission = null)
     {
         _client = client;
-        _trustedKey = trustedKey;
-        _client.HostKeyReceived += OnHostKeyReceived;
+        _admission = admission;
+        _hostKey = new SshHostKeyPolicy(trustedKey);
+        _client.HostKeyReceived += _hostKey.OnReceived;
         _client.ErrorOccurred += OnErrorOccurred;
     }
 
     public bool IsConnected { get { lock (_closeLock) return _closeTask is null && _client.IsConnected; } }
     public event EventHandler<SshSessionClosedEventArgs>? Closed;
-    internal SshHostKey? ObservedKey { get; private set; }
-    internal SshConnectionException? HostKeyFailure { get; private set; }
+    internal SshHostKey? ObservedKey => _hostKey.ObservedKey;
+    internal SshConnectionException? HostKeyFailure => _hostKey.Failure;
 
     internal async Task ConnectAsync(CancellationToken cancellationToken)
     {
@@ -61,27 +63,6 @@ internal sealed class SshNetSession : ISshScriptSession
             }
         }
         catch (OperationCanceledException) when (_watchCancellation.IsCancellationRequested) { }
-    }
-
-    private void OnHostKeyReceived(object? sender, HostKeyEventArgs args)
-    {
-        args.CanTrust = false;
-        try
-        {
-            var receivedKey = new SshHostKey(args.HostKeyName, args.HostKey);
-            ObservedKey = receivedKey;
-            if (_trustedKey is null) return;
-            if (!_trustedKey.Equals(receivedKey))
-            {
-                HostKeyFailure = new SshConnectionException(SshFailureKind.HostKeyChanged, "SSH 主机公钥已改变；连接已拒绝。");
-                return;
-            }
-            args.CanTrust = true;
-        }
-        catch (ArgumentException error)
-        {
-            HostKeyFailure = new SshConnectionException(SshFailureKind.Protocol, "SSH 主机公钥无效或超过限制。", error);
-        }
     }
 
     private void OnErrorOccurred(object? sender, ExceptionEventArgs args)
@@ -217,7 +198,8 @@ internal sealed class SshNetSession : ISshScriptSession
                 try { _client.Dispose(); }
                 finally
                 {
-                    _client.HostKeyReceived -= OnHostKeyReceived;
+                    _client.HostKeyReceived -= _hostKey.OnReceived;
+                    _admission?.Dispose();
                     Closed?.Invoke(this, new SshSessionClosedEventArgs(failure));
                 }
             });
