@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.Core" />
+    <ProjectReference Include="../WinShell.Infrastructure.Ssh/WinShell.Infrastructure.Ssh.csproj" />
     <ProjectReference Include="../WinShell.Infrastructure.Windows/WinShell.Infrastructure.Windows.csproj" />
     <None Update="ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
