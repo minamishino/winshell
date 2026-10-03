@@ -4,6 +4,7 @@
   </Configurations>
   <Folder Name="/src/">
     <Project Path="src/WinShell.Core/WinShell.Core.csproj" />
+    <Project Path="src/WinShell.Infrastructure.Windows/WinShell.Infrastructure.Windows.csproj" />
     <Project Path="src/WinShell.App/WinShell.App.csproj" />
   </Folder>
 </Solution>
