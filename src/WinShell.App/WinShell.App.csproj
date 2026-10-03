@@ -14,8 +14,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" PrivateAssets="all" />
     <ProjectReference Include="..\WinShell.Core\WinShell.Core.csproj" />
+    <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
   </ItemGroup>
 </Project>
