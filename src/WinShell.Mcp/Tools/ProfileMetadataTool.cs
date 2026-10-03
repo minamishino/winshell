@@ -48,6 +48,7 @@ public sealed class ProfileMetadataTool(McpGrantSnapshot grants, Func<IConnectio
         }
         catch (OperationCanceledException) { return Error("cancelled"); }
         catch (UnauthorizedAccessException) { return Error("permission_denied"); }
+        catch (TimeoutException) { return Error("storage_busy"); }
         catch (IOException) { return Error("storage_unavailable"); }
         finally { Interlocked.Decrement(ref _activeCalls); }
     }
