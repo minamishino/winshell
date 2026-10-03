@@ -10,16 +10,19 @@ public sealed partial class ConnectionProfilesPage : Page
 {
     public ConnectionProfilesViewModel ViewModel { get; }
     public event EventHandler<ConnectionProfile>? OpenProfileRequested;
+    public event EventHandler<ConnectionProfile>? ConnectSshRequested;
     private ConnectionProfileEditorViewModel _editor = new(null);
     private readonly HashSet<Task> _pendingActions = [];
     private readonly List<Exception> _shutdownFailures = [];
     private Guid? _savedProfileId;
     private bool _loaded, _closing, _updatingSelectors;
-    private ContentDialog? _activeDialog;
+    private readonly NativeDialogService _dialogs;
+    private readonly CancellationTokenSource _dialogCancellation = new();
     private Task? _shutdown;
 
-    public ConnectionProfilesPage(ConnectionProfilesViewModel viewModel)
+    public ConnectionProfilesPage(ConnectionProfilesViewModel viewModel, NativeDialogService dialogs)
     {
+        _dialogs = dialogs;
         ViewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
@@ -65,7 +68,7 @@ public sealed partial class ConnectionProfilesPage : Page
         ProtocolBox.SelectionChanged -= ProtocolBox_SelectionChanged;
         AuthenticationBox.SelectionChanged -= AuthenticationBox_SelectionChanged;
         SecretInput.Password = "";
-        _activeDialog?.Hide();
+        _dialogCancellation.Cancel();
         _shutdown = SettleActionsAsync();
         return _shutdown;
     }
@@ -73,6 +76,7 @@ public sealed partial class ConnectionProfilesPage : Page
     private async Task SettleActionsAsync()
     {
         await Task.WhenAll(_pendingActions.ToArray());
+        _dialogCancellation.Dispose();
         if (_shutdownFailures.Count != 0) throw new AggregateException("关闭期间有页面操作未能完成。", _shutdownFailures);
     }
 
@@ -149,14 +153,16 @@ public sealed partial class ConnectionProfilesPage : Page
         await ViewModel.SaveProfileAsync(profile, CancellationToken.None);
         if (!_closing && ViewModel.ErrorMessage is null && ViewModel.SelectedProfile?.Id == profile.Id) SetEditor(profile);
     });
-    private async Task<bool> ConfirmDeletionAsync(string title, string content)
+    private Task<bool> ConfirmDeletionAsync(string title, string content) =>
+        _dialogs.ConfirmAsync(XamlRoot, title, content, "删除", _dialogCancellation.Token);
+    private void ConnectSsh_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing || _activeDialog is not null) return false;
-        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = content,
-            PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
-        _activeDialog = dialog;
-        try { return await dialog.ShowAsync() == ContentDialogResult.Primary && !_closing; }
-        finally { _activeDialog = null; }
+        if (_closing) return;
+        if (ViewModel.SelectedProfile is not { } profile)
+            ViewModel.ReportValidationError("请先从列表选择一个已保存的 SSH 配置。");
+        else if (profile.Protocol != ConnectionProtocol.Ssh)
+            ViewModel.ReportValidationError("连接 SSH 仅支持 SSH 配置，FTP / FTPS 尚未接入。");
+        else ConnectSshRequested?.Invoke(this, profile);
     }
     private async void DeleteProfile_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
     {
