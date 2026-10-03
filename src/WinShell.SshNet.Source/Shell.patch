@@ -1,0 +1,282 @@
+diff --git a/src/Renci.SshNet/Shell.cs b/src/Renci.SshNet/Shell.cs
+index cad3917..423d5ec 100644
+--- a/src/Renci.SshNet/Shell.cs
++++ b/src/Renci.SshNet/Shell.cs
+@@ -1 +1 @@
+-﻿using System;
++using System;
+@@ -16,0 +17,259 @@ public sealed class Shell : IDisposable
++        private readonly object _exclusiveGate = new object();
++        private ExclusiveSession _exclusive;
++        private bool _legacyUsed;
++
++        /// <summary>
++        /// Starts a single-use shell that exclusively owns this SSH session's shutdown.
++        /// No other channel may share the session. Cancellation, remote close, or failure closes
++        /// the whole session. The client owner must still dispose its SshClient separately.
++        /// </summary>
++        /// <param name="wakeOutput">Idempotent, nonblocking action that wakes every output sink
++        /// before disconnect joins the listener. It must not await shell completion.</param>
++        /// <param name="cancellationToken">Cancellation for this exclusive shell's lifetime.</param>
++        /// <returns>The owned startup task. A failed startup still requires awaiting close.</returns>
++        public System.Threading.Tasks.Task StartExclusiveSessionAsync(Action wakeOutput, CancellationToken cancellationToken = default)
++        {
++            if (wakeOutput == null) throw new ArgumentNullException(nameof(wakeOutput));
++            lock (_exclusiveGate)
++            {
++                if (_disposed || _legacyUsed || IsStarted || _channel != null || _exclusive != null)
++                    throw new InvalidOperationException("Shell has already been used or disposed.");
++                _exclusive = new ExclusiveSession(this, wakeOutput);
++                return _exclusive.Start(cancellationToken);
++            }
++        }
++
++        /// <summary>Gets the actual exclusive input pump completion, including EOF or failure.</summary>
++        public System.Threading.Tasks.Task InputCompletion => RequireExclusive().InputCompletion;
++        /// <summary>Gets the actual nullable remote exit status; absent is distinct from zero.</summary>
++        public int? ExitStatus => RequireExclusive().ExitStatus;
++        /// <summary>Gets the actual remote exit signal, or null when no signal was received.</summary>
++        public string ExitSignal => RequireExclusive().ExitSignal;
++        /// <summary>Gets whether the peer sent channel EOF, independently of channel close.</summary>
++        public bool RemoteEofReceived => RequireExclusive().RemoteEofReceived;
++        /// <summary>Gets whether the peer sent channel close, not merely local shutdown.</summary>
++        public bool RemoteClosed => RequireExclusive().RemoteClosed;
++
++        /// <summary>Sends an existing SSH window-change request on the exclusive PTY.</summary>
++        /// <remarks>Only one resize may be in flight. Shutdown joins the admitted operation.</remarks>
++        public System.Threading.Tasks.Task ChangeWindowSizeAsync(uint columns, uint rows, uint width, uint height)
++            => RequireExclusive().Resize(columns, rows, width, height);
++
++        /// <summary>
++        /// Wakes sinks and input, disconnects this explicitly exclusive session off the caller
++        /// thread, and joins startup, input, resize and listener before disposing the channel.
++        /// Repeated calls return the same owned task. This operation cannot be abandoned by cancellation.
++        /// </summary>
++        public System.Threading.Tasks.Task CloseExclusiveSessionAsync() => RequireExclusive().Close();
++
++        private ExclusiveSession RequireExclusive()
++        {
++            lock (_exclusiveGate)
++                return _exclusive ?? throw new InvalidOperationException("Call StartExclusiveSessionAsync first.");
++        }
++
++        // Shell-only adapter over the existing mature channel requests/parser. Legacy Start/Stop
++        // remain separate: they must never silently acquire whole-session ownership.
++        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "Owned asynchronous Close task disposes CTS only after all workers join.")]
++        private sealed class ExclusiveSession
++        {
++            private readonly Shell _owner;
++            private readonly Action _wakeOutput;
++            private readonly object _gate = new object();
++            private readonly CancellationTokenSource _stop = new CancellationTokenSource();
++            private readonly System.Threading.Tasks.TaskCompletionSource<bool> _inputCompleted =
++                new System.Threading.Tasks.TaskCompletionSource<bool>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
++            private CancellationTokenRegistration _cancellation;
++            private CancellationToken _lifetimeToken;
++            private Exception _firstFailure;
++            private IChannelSession _channel;
++            private System.Threading.Tasks.Task _start;
++            private System.Threading.Tasks.Task _pump = System.Threading.Tasks.Task.CompletedTask;
++            private System.Threading.Tasks.Task _inputObservation = System.Threading.Tasks.Task.CompletedTask;
++            private System.Threading.Tasks.Task _resize = System.Threading.Tasks.Task.CompletedTask;
++            private System.Threading.Tasks.Task _close;
++            private bool _closing;
++            private bool _ready;
++            private int? _exitStatus;
++            private string _exitSignal;
++            private bool _remoteEof;
++            private bool _remoteClosed;
++
++            internal ExclusiveSession(Shell owner, Action wakeOutput) { _owner = owner; _wakeOutput = wakeOutput; }
++            internal System.Threading.Tasks.Task InputCompletion => _inputCompleted.Task;
++            internal bool IsClosed { get { lock (_gate) return _close != null && _close.IsCompleted; } }
++            internal int? ExitStatus { get { lock (_gate) return _exitStatus; } }
++            internal string ExitSignal { get { lock (_gate) return _exitSignal; } }
++            internal bool RemoteEofReceived { get { lock (_gate) return _remoteEof; } }
++            internal bool RemoteClosed { get { lock (_gate) return _remoteClosed; } }
++
++            internal System.Threading.Tasks.Task Start(CancellationToken cancellationToken)
++            {
++                lock (_gate)
++                {
++                    _lifetimeToken = cancellationToken;
++                    _start = System.Threading.Tasks.Task.Run(StartCore, CancellationToken.None);
++                    _cancellation = cancellationToken.Register(() => { _ = Close(); });
++                    return _start;
++                }
++            }
++
++            private void StartCore()
++            {
++                try
++                {
++                    _stop.Token.ThrowIfCancellationRequested();
++                    _channel = _owner._session.CreateChannelSession();
++                    _channel.DataReceived += Data;
++                    _channel.ExtendedDataReceived += ExtendedData;
++                    _channel.RequestReceived += Request;
++                    _channel.Closed += Closed;
++                    _channel.Exception += ChannelError;
++                    // The library's concrete channel already exposes its parsed EOF event.
++                    // This cast stays inside the same fixed source assembly; consumers use public API only.
++                    ((Channel)_channel).EndOfData += Eof;
++                    _owner._session.Disconnected += Disconnected;
++                    _owner._session.ErrorOccured += SessionError;
++                    _stop.Token.ThrowIfCancellationRequested();
++                    _channel.Open();
++                    if (!_owner._noTerminal && !_channel.SendPseudoTerminalRequest(_owner._terminalName,
++                        _owner._columns, _owner._rows, _owner._width, _owner._height, _owner._terminalModes))
++                        throw new SshException("The pseudo-terminal request was not accepted by the server.");
++                    if (!_channel.SendShellRequest()) throw new SshException("The shell request was not accepted by the server.");
++                    lock (_gate)
++                    {
++                        _stop.Token.ThrowIfCancellationRequested();
++                        if (_closing || !_channel.IsOpen) throw new SshConnectionException("Exclusive shell closed during startup.");
++                        _ready = true;
++                        _owner.IsStarted = true;
++                        _pump = System.Threading.Tasks.Task.Run(PumpAsync);
++                        _inputObservation = ObserveInputAsync();
++                    }
++                }
++                catch (Exception error)
++                {
++                    _ = Close();
++                    if (_lifetimeToken.IsCancellationRequested)
++                        throw new OperationCanceledException("Exclusive shell startup canceled.", error, _lifetimeToken);
++                    throw;
++                }
++            }
++
++            private async System.Threading.Tasks.Task PumpAsync()
++            {
++                try
++                {
++                    var buffer = new byte[_owner._bufferSize];
++                    while (true)
++                    {
++                        var count = await _owner._input.ReadAsync(buffer.AsMemory(), _stop.Token).ConfigureAwait(false);
++                        _stop.Token.ThrowIfCancellationRequested();
++                        if (count == 0) { _channel.SendEof(); return; }
++                        _channel.SendData(buffer, 0, count);
++                    }
++                }
++                catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
++                catch (SshConnectionException) when (IsClosing()) { }
++                catch (ObjectDisposedException) when (IsClosing()) { }
++                catch { _ = Close(); throw; }
++            }
++
++            private async System.Threading.Tasks.Task ObserveInputAsync()
++            {
++                try { await _pump.ConfigureAwait(false); _inputCompleted.TrySetResult(true); }
++                catch (Exception error) { _inputCompleted.TrySetException(error); }
++            }
++
++            private bool IsClosing() { lock (_gate) return _closing; }
++
++            internal System.Threading.Tasks.Task Resize(uint columns, uint rows, uint width, uint height)
++            {
++                lock (_gate)
++                {
++                    if (!_ready || _closing || _owner._noTerminal) throw new InvalidOperationException("Exclusive PTY is not active.");
++                    if (!_resize.IsCompleted) throw new InvalidOperationException("A resize is already in flight.");
++                    _resize = System.Threading.Tasks.Task.Run(() => _channel.SendWindowChangeRequest(columns, rows, width, height));
++                    return _resize;
++                }
++            }
++
++            internal System.Threading.Tasks.Task Close()
++            {
++                lock (_gate)
++                {
++                    if (_close != null) return _close;
++                    _closing = true;
++                    _close = System.Threading.Tasks.Task.Run(CloseCoreAsync);
++                    return _close;
++                }
++            }
++
++            private async System.Threading.Tasks.Task CloseCoreAsync()
++            {
++                var errors = new List<Exception>();
++                // Caller stream contracts: each wake/dispose must be nonblocking and settle its waits.
++                try { _wakeOutput(); } catch (Exception error) { errors.Add(error); }
++                try { _stop.Cancel(); } catch (Exception error) { errors.Add(error); }
++                try { _owner._input.Dispose(); } catch (Exception error) { errors.Add(error); }
++                try { _owner._session.Disconnect(); } catch (Exception error) { errors.Add(error); }
++                // The startup error belongs to the returned startup task. Joining it is still mandatory.
++                try { await _start.ConfigureAwait(false); } catch (Exception) { /* Observed by Start caller. */ }
++                try
++                {
++                    await _pump.ConfigureAwait(false);
++                    await _inputObservation.ConfigureAwait(false);
++                    _inputCompleted.TrySetResult(true);
++                }
++                catch (Exception error) { _inputCompleted.TrySetException(error); errors.Add(error); }
++                await _inputObservation.ConfigureAwait(false);
++                try { await _resize.ConfigureAwait(false); }
++                catch (SshConnectionException) when (IsClosing()) { }
++                catch (Exception error) { errors.Add(error); }
++                // Disconnect has joined the listener. Startup and all senders are now settled:
++                // it is safe to release the channel's native wait handles and subscriptions.
++                if (_channel != null)
++                {
++                    _channel.DataReceived -= Data;
++                    _channel.ExtendedDataReceived -= ExtendedData;
++                    _channel.RequestReceived -= Request;
++                    _channel.Closed -= Closed;
++                    _channel.Exception -= ChannelError;
++                    ((Channel)_channel).EndOfData -= Eof;
++                    try { _channel.Dispose(); } catch (Exception error) { errors.Add(error); }
++                }
++                _owner._session.Disconnected -= Disconnected;
++                _owner._session.ErrorOccured -= SessionError;
++                _cancellation.Dispose();
++                _stop.Dispose();
++                _owner.IsStarted = false;
++                lock (_gate) { if (_firstFailure != null) errors.Add(_firstFailure); }
++                if (errors.Count != 0) throw new AggregateException("Exclusive shell cleanup failed.", errors);
++            }
++
++            private void Data(object sender, ChannelDataEventArgs e) => _owner._outputStream?.Write(e.Data.Array, e.Data.Offset, e.Data.Count);
++            private void ExtendedData(object sender, ChannelExtendedDataEventArgs e) => _owner._extendedOutputStream?.Write(e.Data.Array, e.Data.Offset, e.Data.Count);
++            private void Eof(object sender, ChannelEventArgs e) { lock (_gate) _remoteEof = true; }
++            private void Closed(object sender, ChannelEventArgs e) { lock (_gate) _remoteClosed = true; _ = Close(); }
++            private void Disconnected(object sender, EventArgs e) { _ = Close(); }
++            private void ChannelError(object sender, ExceptionEventArgs e)
++            {
++                // A callback admitted before shutdown may throw after wakeOutput has run.
++                // Retain the first original cause even when another caller already requested close.
++                lock (_gate) { _firstFailure ??= e.Exception; }
++                _ = Close();
++            }
++            private void SessionError(object sender, ExceptionEventArgs e)
++            {
++                lock (_gate) { if (!_closing) _firstFailure ??= e.Exception; }
++                _ = Close();
++            }
++            private void Request(object sender, ChannelRequestEventArgs e)
++            {
++                lock (_gate)
++                {
++                    if (e.Info is Renci.SshNet.Messages.Connection.ExitStatusRequestInfo status) _exitStatus = (int)status.ExitStatus;
++                    else if (e.Info is Renci.SshNet.Messages.Connection.ExitSignalRequestInfo signal) _exitSignal = signal.SignalName;
++                }
++            }
++        }
++
+@@ -144,0 +404,5 @@ public void Start()
++            lock (_exclusiveGate)
++            {
++                if (_exclusive != null) throw new InvalidOperationException("This shell opted into exclusive session ownership.");
++                _legacyUsed = true;
++            }
+@@ -218,0 +483 @@ public void Stop()
++            if (_exclusive != null) throw new InvalidOperationException("Await CloseExclusiveSessionAsync instead.");
+@@ -309,0 +575,6 @@ public void Dispose()
++            lock (_exclusiveGate)
++            {
++                if (_exclusive != null && !_exclusive.IsClosed)
++                    throw new InvalidOperationException("Await CloseExclusiveSessionAsync before disposing an exclusive shell.");
++                _legacyUsed = true;
++            }
