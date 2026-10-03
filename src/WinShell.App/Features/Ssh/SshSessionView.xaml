@@ -1,0 +1,18 @@
+<UserControl x:Class="WinShell.App.Features.Ssh.SshSessionView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" Padding="24">
+            <TextBlock Text="连接快照目标" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
+            <TextBlock Text="{Binding Target}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.Name="SSH 连接快照目标"/>
+            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+            <TextBlock Text="{Binding HostKeyDescription}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.Name="SSH 主机公钥类型和完整 SHA256 指纹"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="连接 / 重试" Click="Connect_Click" IsEnabled="{Binding CanConnect}"/>
+                <Button Content="取消连接" Click="Cancel_Click" IsEnabled="{Binding CanCancel}"/>
+                <Button Content="断开连接" Click="Disconnect_Click" IsEnabled="{Binding CanDisconnect}"/>
+            </StackPanel>
+            <TextBlock Text="此页面提供真实 SSH 登录、状态及断开。交互式终端、命令执行和文件传输尚未接入。重试使用此目标快照并重新读取实际保存的凭据。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
