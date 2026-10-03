@@ -92,6 +92,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
                 // The five-second budget covers acquisition only; actual I/O uses the caller's token.
                 acquisitionCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
                 cancellationToken.ThrowIfCancellationRequested();
+                ProfileStorageAccess.EnsureConfigurationFileAccess(_configurationDirectory);
                 return await operation(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && acquisitionCancellation.IsCancellationRequested)
@@ -116,6 +117,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                ProfileStorageAccess.IsRegularFileOrMissing(lockPath);
                 return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
             catch (IOException exception) when ((exception.HResult & 0xffff) is 32 or 33)
@@ -309,6 +311,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             await using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
                              FileShare.None, 16 * 1024, FileOptions.Asynchronous))
             {
+                ProfileStorageAccess.EnsureCurrentUserFileAccess(temporaryPath);
                 using var boundedOutput = new BoundedWriteStream(output, MaximumFileBytes);
                 using var writer = new Utf8JsonWriter(boundedOutput);
                 writer.WriteStartObject();
@@ -338,6 +341,10 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             {
                 File.Move(temporaryPath, primaryPath);
             }
+            // File.Replace can preserve destination security. Enforce the same canonical policy
+            // on both committed paths rather than relying on inheritance or replacement details.
+            ProfileStorageAccess.EnsureCurrentUserFileAccess(primaryPath);
+            ProfileStorageAccess.EnsureCurrentUserFileAccess(Path.Combine(_configurationDirectory, "profiles.backup.json"));
         }
         finally
         {
