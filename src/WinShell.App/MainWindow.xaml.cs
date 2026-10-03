@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
+using WinShell.App.Features.Ssh;
 using WinShell.Core.Profiles;
 
 namespace WinShell.App;
@@ -14,18 +15,22 @@ public sealed partial class MainWindow : Window
 {
     private readonly ConnectionProfilesPage _connectionsPage;
     private readonly WorkspaceViewModel _workspace;
+    private readonly SshSessionsPage _sshPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
+        _sshPage = sshPage;
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
+        SshHost.Content = sshPage;
         WorkspaceHost.DataContext = workspace;
         Navigation.SelectedItem = ConnectionsItem;
+        _connectionsPage.ConnectSshRequested += Connections_ConnectSshRequested;
         _connectionsPage.OpenProfileRequested += Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted += Connections_ProfileDeleted;
         _workspace.PropertyChanged += Workspace_PropertyChanged;
@@ -48,18 +53,28 @@ public sealed partial class MainWindow : Window
         catch (InvalidOperationException exception) { _connectionsPage.ViewModel.ReportValidationError(exception.Message); }
     }
 
+    private async void Connections_ConnectSshRequested(object? sender, ConnectionProfile profile)
+    {
+        if (_closing) return;
+        Navigation.SelectedItem = SshItem;
+        await _sshPage.ConnectSavedProfileAsync(profile);
+    }
+
     private void Connections_ProfileDeleted(object? sender, Guid profileId)
     {
         if (_closing) return;
+        _ = _sshPage.CloseProfileAsync(profileId);
         var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
         if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
     }
 
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
-        ConnectionsHost.Visibility = showWorkspace ? Visibility.Collapsed : Visibility.Visible;
+        var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
+        ConnectionsHost.Visibility = showWorkspace || showSsh ? Visibility.Collapsed : Visibility.Visible;
+        SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         if (showWorkspace) FocusSelectedTab();
     }
@@ -130,6 +145,7 @@ public sealed partial class MainWindow : Window
     {
         _closing = true;
         Navigation.IsEnabled = false;
+        _connectionsPage.ConnectSshRequested -= Connections_ConnectSshRequested;
         _connectionsPage.OpenProfileRequested -= Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;
