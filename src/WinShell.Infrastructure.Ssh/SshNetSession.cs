@@ -5,8 +5,12 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 
 namespace WinShell.Infrastructure.Ssh;
 
-internal sealed class SshNetSession : ISshSession
+internal sealed class SshNetSession : ISshScriptSession
 {
+    private readonly CancellationTokenSource _scriptStop = new();
+    private Task<SshScriptResult>? _scriptCore;
+    private Exception? _scriptSessionFailure;
+    internal TimeSpan ScriptTimeout { get; set; } = TimeSpan.FromSeconds(30);
     private readonly SshClient _client;
     private readonly SshHostKey? _trustedKey;
     private readonly object _closeLock = new();
@@ -49,7 +53,7 @@ internal sealed class SshNetSession : ISshSession
             {
                 lock (_closeLock)
                 {
-                    if (_closeTask is not null) return;
+                    if (_closeTask is not null || _scriptCore is not null) return;
                     if (_client.IsConnected) continue;
                 }
                 _ = BeginClose(new SshConnectionException(SshFailureKind.Network, "SSH 远端已关闭连接。"));
@@ -83,7 +87,106 @@ internal sealed class SshNetSession : ISshSession
     private void OnErrorOccurred(object? sender, ExceptionEventArgs args)
     {
         // Never disconnect/dispose on a protocol worker: library disposal may join that very worker.
+        lock (_closeLock)
+        {
+            if (_scriptCore is not null)
+            {
+                // Exclusive close joins the listener but reports an aggregate. Retain its original cause for classification.
+                _scriptSessionFailure ??= args.Exception;
+                return;
+            }
+        }
         _ = BeginClose(HostKeyFailure ?? SshSessionFactory.Classify(args.Exception));
+    }
+
+    public Task<SshScriptResult> RunScriptAsync(string script, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(script);
+        if (script.Contains('\0')) throw new ArgumentException("SSH 脚本不能包含 NUL。", nameof(script));
+        var encoding = new System.Text.UTF8Encoding(false, true);
+        int byteCount;
+        try { byteCount = encoding.GetByteCount(script); }
+        catch (System.Text.EncoderFallbackException error) { throw new ArgumentException("SSH 脚本包含非法 Unicode。", nameof(script), error); }
+        if (byteCount > 8192) throw new ArgumentException("SSH 脚本不能超过 8192 UTF-8 字节。", nameof(script));
+        lock (_closeLock)
+        {
+            if (_scriptCore is not null || _closeTask is not null) throw new InvalidOperationException("SSH 脚本会话只能运行一次。");
+            cancellationToken.ThrowIfCancellationRequested();
+            var scriptBytes = encoding.GetBytes(script);
+            // Publish the owned core before any worker can close the session. The outer wrapper is never joined by close.
+            _scriptCore = Task.Run(() => RunScriptCoreAsync(scriptBytes, cancellationToken));
+            return CompleteScriptAsync(_scriptCore);
+        }
+    }
+
+    private async Task<SshScriptResult> CompleteScriptAsync(Task<SshScriptResult> core)
+    {
+        Exception? failure = null;
+        try { return await core.ConfigureAwait(false); }
+        catch (Exception error) { failure = error; throw; }
+        finally
+        {
+            try { await BeginClose(failure as SshConnectionException).ConfigureAwait(false); }
+            catch (Exception cleanupError) when (failure is not null) { failure.Data["SshSessionCleanupFailure"] = cleanupError; }
+        }
+    }
+
+    private async Task<SshScriptResult> RunScriptCoreAsync(byte[] scriptBytes, CancellationToken callerToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(callerToken, _scriptStop.Token);
+        deadline.CancelAfter(ScriptTimeout);
+        using var input = new MemoryStream(scriptBytes, writable: false);
+        using var output = new SshScriptCapture(32768);
+        using var errorOutput = new SshScriptCapture(16384);
+        Shell? shell = null;
+        Task? starting = null;
+        Exception? failure = null;
+        try
+        {
+            shell = _client.CreateShellNoTerminal(input, output, errorOutput, 1024);
+            var closing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            starting = shell.StartExclusiveSessionAsync(() => closing.TrySetResult(), deadline.Token);
+            await starting.ConfigureAwait(false);
+            await closing.Task.ConfigureAwait(false);
+        }
+        catch (Exception error) { failure = error; }
+        finally
+        {
+            if (shell is not null && starting is not null)
+            {
+                try { await shell.CloseExclusiveSessionAsync().ConfigureAwait(false); }
+                catch (Exception error) { failure ??= error; }
+                try { await starting.ConfigureAwait(false); }
+                catch (Exception error) { failure ??= error; }
+                try { await shell.InputCompletion.ConfigureAwait(false); }
+                catch (Exception error) { failure ??= error; }
+            }
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(scriptBytes);
+        }
+        try
+        {
+            // A sink exception may reach the session callback after startup failed. Preserve the original instance.
+            if (output.Failure is not null) throw output.Failure;
+            if (errorOutput.Failure is not null) throw errorOutput.Failure;
+            if (HostKeyFailure is not null) throw HostKeyFailure;
+            if (callerToken.IsCancellationRequested || _scriptStop.IsCancellationRequested)
+                throw new OperationCanceledException("SSH 脚本已取消。", failure, callerToken.IsCancellationRequested ? callerToken : _scriptStop.Token);
+            if (deadline.IsCancellationRequested)
+                throw new SshConnectionException(SshFailureKind.Timeout, "SSH 脚本执行超时。", failure);
+            var sessionFailure = Volatile.Read(ref _scriptSessionFailure);
+            if (sessionFailure is not null)
+            {
+                var classifiedFailure = SshSessionFactory.Classify(sessionFailure);
+                if (failure is not null && !ReferenceEquals(failure, sessionFailure))
+                    classifiedFailure.Data["SshExclusiveCleanupFailure"] = failure;
+                throw classifiedFailure;
+            }
+            if (failure is not null) throw SshSessionFactory.Classify(failure);
+            if (shell is null || !shell.RemoteClosed)
+                throw new SshConnectionException(SshFailureKind.Network, "SSH 脚本连接在远端通道结束前中断。");
+            return new SshScriptResult(output.Decode(), errorOutput.Decode(), shell.ExitStatus, shell.ExitSignal, shell.RemoteEofReceived);
+        }
+        finally { shell?.Dispose(); }
     }
 
     public Task DisconnectAsync(CancellationToken cancellationToken)
@@ -103,6 +206,13 @@ internal sealed class SshNetSession : ISshSession
                 await _watchCancellation.CancelAsync().ConfigureAwait(false);
                 await _watchTask.ConfigureAwait(false);
                 _watchCancellation.Dispose();
+                await _scriptStop.CancelAsync().ConfigureAwait(false);
+                if (_scriptCore is not null)
+                {
+                    try { await _scriptCore.ConfigureAwait(false); }
+                    catch (Exception) { /* The RunScriptAsync caller observes the execution failure. */ }
+                }
+                _scriptStop.Dispose();
                 _client.ErrorOccurred -= OnErrorOccurred;
                 try { _client.Dispose(); }
                 finally
