@@ -81,7 +81,12 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
                 var accepted = await _confirm(challenge, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!accepted) { SetState(SshSessionState.Disconnected, "已取消主机公钥确认。"); return; }
-                if (!await _knownHosts.TrustIfAbsentOrSameAsync(challenge.Endpoint, challenge.Key, cancellationToken))
+                bool trusted;
+                try { trusted = await _knownHosts.TrustIfAbsentOrSameAsync(challenge.Endpoint, challenge.Key, cancellationToken); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception exception)
+                { throw new SshConnectionException(SshFailureKind.Storage, "无法保存可信主机记录；连接已拒绝。", exception); }
+                if (!trusted)
                     throw new SshConnectionException(SshFailureKind.HostKeyChanged, "主机公钥已变化，连接已拒绝。");
                 cancellationToken.ThrowIfCancellationRequested();
                 SetState(SshSessionState.Connecting, "主机公钥已确认，正在重新连接并认证…");
