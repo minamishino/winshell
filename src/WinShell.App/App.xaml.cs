@@ -5,6 +5,9 @@ using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
 using WinShell.Core.Ssh;
+using WinShell.Core.Connections;
+using WinShell.Core.Files;
+using WinShell.App.Features.Files;
 using WinShell.Infrastructure.Ssh;
 using WinShell.Infrastructure.Windows.Ssh;
 using WinShell.Core.Credentials;
@@ -22,6 +25,7 @@ public partial class App : Application
     private WorkspaceViewModel? _workspace;
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
+    private FilesPage? _filesPage;
     private Task? _shutdown;
 
     public App() => InitializeComponent();
@@ -37,6 +41,9 @@ public partial class App : Application
             builder.Services.AddSingleton<WorkspaceViewModel>();
             builder.Services.AddSingleton<ConnectionProfilesPage>();
             builder.Services.AddSingleton<IKnownHostRepository>(_ => new JsonKnownHostRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<ConnectionAdmissionBudget>();
+            builder.Services.AddSingleton<ISftpSessionFactory, SftpSessionFactory>();
+            builder.Services.AddSingleton<FilesPage>();
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
@@ -47,6 +54,7 @@ public partial class App : Application
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
+            _filesPage = _host.Services.GetRequiredService<FilesPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -74,7 +82,8 @@ public partial class App : Application
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh);
+        var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
