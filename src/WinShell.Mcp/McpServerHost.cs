@@ -19,9 +19,27 @@ public sealed class McpServerHost : IAsyncDisposable
     public TransportStatistics Statistics => _transport.Statistics;
 
     public McpServerHost(Stream input, Stream output, McpGrantSnapshot grants, Func<IConnectionProfileRepository> repositoryFactory)
+        : this(input, output, MetadataHandlers(grants, repositoryFactory)) { }
+
+    public McpServerHost(Stream input, Stream output, McpToolService tools)
+        : this(input, output, new McpServerHandlers
+        {
+            ListToolsHandler = (_, token) => tools.ListAsync(token),
+            CallToolHandler = (request, token) => tools.CallAsync(request.Params, token)
+        }) { }
+
+    private static McpServerHandlers MetadataHandlers(McpGrantSnapshot grants, Func<IConnectionProfileRepository> repositoryFactory)
+    {
+        var metadata = new ProfileMetadataTool(grants, repositoryFactory);
+        return new()
+        {
+            ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult { Tools = [ProfileMetadataTool.Definition] }),
+            CallToolHandler = (request, token) => metadata.CallAsync(request.Params, token)
+        };
+    }
+    private McpServerHost(Stream input, Stream output, McpServerHandlers handlers)
     {
         _transport = new(input, output);
-        var metadata = new ProfileMetadataTool(grants, repositoryFactory);
         var options = new McpServerOptions
         {
             ServerInfo = new Implementation { Name = "WinShell", Version = "0.1.0" },
@@ -29,11 +47,7 @@ public sealed class McpServerHost : IAsyncDisposable
             InitializationTimeout = TimeSpan.FromSeconds(30),
             ScopeRequests = false,
             Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
-            Handlers = new McpServerHandlers
-            {
-                ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult { Tools = [ProfileMetadataTool.Definition] }),
-                CallToolHandler = (request, cancellationToken) => metadata.CallAsync(request.Params, cancellationToken)
-            }
+            Handlers = handlers
         };
         options.Filters.Message.IncomingFilters.Add(_transport.TrackIncoming);
         _server = McpServer.Create(_transport, options, loggerFactory: null);
