@@ -18,6 +18,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" PrivateAssets="all" />
+    <ProjectReference Include="..\WinShell.Infrastructure.Ssh\WinShell.Infrastructure.Ssh.csproj" />
     <ProjectReference Include="..\WinShell.Core\WinShell.Core.csproj" />
     <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
   </ItemGroup>
