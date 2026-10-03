@@ -1,3 +1,4 @@
+using WinShell.App.Features.Mcp;
 using System.ComponentModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -20,7 +21,7 @@ public sealed partial class MainWindow : Window
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, McpPermissionsPage mcpPage)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
@@ -28,6 +29,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
+        McpHost.Content = mcpPage;
         WorkspaceHost.DataContext = workspace;
         Navigation.SelectedItem = ConnectionsItem;
         _connectionsPage.ConnectSshRequested += Connections_ConnectSshRequested;
@@ -70,10 +72,12 @@ public sealed partial class MainWindow : Window
 
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || McpHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
-        ConnectionsHost.Visibility = showWorkspace || showSsh ? Visibility.Collapsed : Visibility.Visible;
+        var showMcp = ReferenceEquals(args.SelectedItem, McpItem);
+        McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionsHost.Visibility = showWorkspace || showSsh || showMcp ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         if (showWorkspace) FocusSelectedTab();
