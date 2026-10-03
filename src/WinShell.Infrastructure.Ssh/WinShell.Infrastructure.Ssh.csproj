@@ -4,7 +4,7 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="SSH.NET" />
+    <ProjectReference Include="../WinShell.SshNet.Source/Renci.SshNet.csproj" />
     <ProjectReference Include="../WinShell.Core/WinShell.Core.csproj" />
     
   </ItemGroup>
