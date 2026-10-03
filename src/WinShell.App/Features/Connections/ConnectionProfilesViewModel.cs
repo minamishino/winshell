@@ -80,7 +80,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         catch (Exception exception)
         {
             // The credential side effect has committed, including when cancellation follows it.
-            if (!_disposed) ErrorMessage = $"凭据已删除，但配置删除未完成；配置仍保留。{DescribeFailure(exception)}";
+            if (!_disposed) ErrorMessage = $"凭据已删除；磁盘上的配置是否删除尚未确认，请重新加载确认。当前页面的列表及编辑快照已保留。{DescribeFailure(exception)}";
             return;
         }
         if (_disposed) return;
@@ -160,6 +160,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         UnauthorizedAccessException => "没有访问配置或凭据的权限。",
         System.ComponentModel.Win32Exception => "Windows 凭据管理器操作失败，请检查当前用户权限。",
         InvalidDataException => "配置文件无效或版本不受支持，未覆盖原文件。",
+        NotSupportedException => "当前应用不支持此配置版本或格式，未覆盖原文件。请使用兼容的应用版本。",
         IOException => "配置文件读写失败，请检查磁盘空间、文件权限或占用。",
         TimeoutException => "等待配置文件锁超时，请稍后重试。",
         ArgumentException argument => argument.Message,
