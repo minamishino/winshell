@@ -46,7 +46,8 @@ public sealed partial class ConnectionProfilesPage : Page
     }
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (ProfilesList.SelectedItem is ConnectionProfile profile) SetEditor(profile);
+        // Filtering can clear and restore the same selection; keep its unsaved input.
+        if (ProfilesList.SelectedItem is ConnectionProfile profile && profile.Id != _savedProfileId) SetEditor(profile);
     }
     private async void Reload_Click(object sender, RoutedEventArgs args)
     {
