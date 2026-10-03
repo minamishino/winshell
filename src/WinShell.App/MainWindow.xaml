@@ -2,12 +2,33 @@
     x:Class="WinShell.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:workspace="using:WinShell.App.Features.Workspace"
     Title="WinShell">
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <NavigationView x:Name="Navigation" IsSettingsVisible="False" PaneDisplayMode="LeftCompact" IsBackButtonVisible="Collapsed" Header="WinShell">
+        <NavigationView x:Name="Navigation" IsSettingsVisible="False" PaneDisplayMode="LeftCompact" IsBackButtonVisible="Collapsed" Header="WinShell" SelectionChanged="Navigation_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="ConnectionsItem" Content="连接配置" Icon="Contact" AutomationProperties.Name="连接配置"/>
+                <NavigationViewItem x:Name="WorkspaceItem" Content="配置详情" Icon="Document" AutomationProperties.Name="配置详情工作区"/>
             </NavigationView.MenuItems>
+            <Grid>
+                <ContentControl x:Name="ConnectionsHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                <Grid x:Name="WorkspaceHost" Visibility="Collapsed">
+                    <TabView x:Name="DetailsTabs" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
+                             TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                             TabCloseRequested="DetailsTabs_TabCloseRequested" SelectionChanged="DetailsTabs_SelectionChanged"
+                             AutomationProperties.Name="连接配置详情标签">
+                        <TabView.TabItemTemplate>
+                            <DataTemplate>
+                                <TabViewItem Header="{Binding Title}" IsClosable="True" Loaded="DetailTab_Loaded" AutomationProperties.Name="{Binding Title}">
+                                    <workspace:ProfileDetailsView/>
+                                </TabViewItem>
+                            </DataTemplate>
+                        </TabView.TabItemTemplate>
+                    </TabView>
+                    <TextBlock x:Name="EmptyWorkspace" Text="尚未打开详情。请在连接配置中选择一项并打开详情。"
+                               Margin="24,64,24,24" TextWrapping="Wrap" VerticalAlignment="Top" IsHitTestVisible="False"/>
+                </Grid>
+            </Grid>
         </NavigationView>
     </Grid>
 </Window>
