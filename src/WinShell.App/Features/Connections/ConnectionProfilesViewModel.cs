@@ -31,6 +31,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     }
 
     public ReadOnlyObservableCollection<ConnectionProfile> Profiles { get; }
+    public event EventHandler<Guid>? ProfileDeleted;
     public ConnectionProfile? SelectedProfile { get => _selectedProfile; set => SetProperty(ref _selectedProfile, value); }
     public string SearchText
     {
@@ -88,6 +89,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         if (SelectedProfile?.Id == profileId) SelectedProfile = null;
         ApplySearch();
         StatusMessage = "连接配置及其凭据已删除。";
+        ProfileDeleted?.Invoke(this, profileId);
     }, cancellationToken);
 
     public Task SaveCredentialAsync(Guid profileId, ReadOnlyMemory<byte> secretUtf8, CancellationToken cancellationToken)
@@ -183,14 +185,18 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         if (_disposal is not null) return new(_disposal);
         _disposed = true;
         OnPropertyChanged(nameof(CanEdit));
-        _lifetime.Cancel();
         _disposal = SettleAsync();
         return new(_disposal);
     }
     private async Task SettleAsync()
     {
-        await _activeOperation;
-        _lifetime.Dispose();
+        List<Exception> failures = [];
+        try { _lifetime.Cancel(); }
+        catch (Exception exception) { failures.Add(exception); }
+        try { await _activeOperation; }
+        catch (Exception exception) { failures.Add(exception); }
+        finally { _lifetime.Dispose(); }
+        if (failures.Count != 0) throw new AggregateException("配置操作关闭时发生错误，已等待操作结束。", failures);
     }
 
     private sealed class ProfileCollection : ObservableCollection<ConnectionProfile>
