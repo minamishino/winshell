@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" />
+    <ProjectReference Include="../WinShell.Core/WinShell.Core.csproj" />
+    
+  </ItemGroup>
+</Project>
