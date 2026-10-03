@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using WinShell.App.Features.Connections;
+using WinShell.App.Features.Workspace;
 using WinShell.Core.Credentials;
 using WinShell.Core.Profiles;
 using WinShell.Infrastructure.Windows.Credentials;
@@ -13,6 +14,10 @@ public partial class App : Application
 {
     private IHost? _host;
     private Window? _mainWindow;
+    private ConnectionProfilesViewModel? _profiles;
+    private WorkspaceViewModel? _workspace;
+    private ConnectionProfilesPage? _connectionsPage;
+    private Task? _shutdown;
 
     public App() => InitializeComponent();
 
@@ -24,10 +29,14 @@ public partial class App : Application
             builder.Services.AddSingleton<IConnectionProfileRepository>(_ => new JsonConnectionProfileRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<ICredentialStore, WindowsCredentialStore>();
             builder.Services.AddSingleton<ConnectionProfilesViewModel>();
+            builder.Services.AddSingleton<WorkspaceViewModel>();
             builder.Services.AddSingleton<ConnectionProfilesPage>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync();
+            _profiles = _host.Services.GetRequiredService<ConnectionProfilesViewModel>();
+            _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
+            _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -35,22 +44,43 @@ public partial class App : Application
         }
         catch (Exception)
         {
+            var failureMessage = "应用初始化失败，请检查配置目录和 Windows 运行环境。";
+            try { await ShutdownAsync(); }
+            catch (Exception) { failureMessage += "部分资源清理失败，其他资源已尝试清理。"; }
             _mainWindow = new Window { Title = "WinShell — 启动失败", Content = new Microsoft.UI.Xaml.Controls.TextBlock
-                { Text = "应用初始化失败，请检查配置目录和 Windows 运行环境。", Margin = new Thickness(24), TextWrapping = TextWrapping.Wrap } };
-            _mainWindow.Closed += StartupFailureWindow_Closed;
+                { Text = failureMessage, Margin = new Thickness(24), TextWrapping = TextWrapping.Wrap } };
             _mainWindow.Activate();
         }
     }
 
-    private async void StartupFailureWindow_Closed(object sender, WindowEventArgs args) => await ShutdownAsync();
+    private Task ShutdownAsync() => _shutdown ??= ShutdownOwnersAsync();
 
-    private async Task ShutdownAsync()
+    private async Task ShutdownOwnersAsync()
     {
-        if (_host is null) return;
-        await _host.StopAsync();
-        if (_host is IAsyncDisposable asyncHost) await asyncHost.DisposeAsync();
-        else _host.Dispose();
-        _host = null;
+        List<Exception> failures = [];
+        // Start every owner before awaiting: a pending page load/save needs VM cancellation to settle.
+        var windowActions = AttemptAsync(() => (_mainWindow as MainWindow)?.BeginShutdownAsync() ?? Task.CompletedTask);
+        var pageActions = AttemptAsync(() => _connectionsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
+        var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles);
+        if (_host is { } host)
+        {
+            await AttemptAsync(() => host.StopAsync());
+            await AttemptAsync(async () =>
+            {
+                if (host is IAsyncDisposable asyncHost) await asyncHost.DisposeAsync();
+                else host.Dispose();
+            });
+            _host = null;
+        }
+        if (failures.Count != 0) throw new AggregateException("关闭期间部分资源清理失败。", failures);
+
+        async Task AttemptAsync(Func<Task> cleanup)
+        {
+            try { await cleanup(); }
+            catch (Exception exception) { failures.Add(exception); }
+        }
     }
 
     private static string GetConfigurationDirectory()
