@@ -18,9 +18,9 @@
                              TabCloseRequested="DetailsTabs_TabCloseRequested" SelectionChanged="DetailsTabs_SelectionChanged"
                              AutomationProperties.Name="连接配置详情标签">
                         <TabView.TabItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="workspace:ProfileTabViewModel">
                                 <TabViewItem Header="{Binding Title}" IsClosable="True" Loaded="DetailTab_Loaded" AutomationProperties.Name="{Binding Title}">
-                                    <workspace:ProfileDetailsView/>
+                                    <workspace:ProfileDetailsView DataContext="{x:Bind}"/>
                                 </TabViewItem>
                             </DataTemplate>
                         </TabView.TabItemTemplate>
