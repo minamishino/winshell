@@ -1,3 +1,6 @@
+using WinShell.App.Features.Mcp;
+using WinShell.Core.Mcp;
+using WinShell.Infrastructure.Windows.Mcp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
@@ -23,6 +26,7 @@ public partial class App : Application
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
     private Task? _shutdown;
+    private McpPermissionsPage? _mcpPage;
 
     public App() => InitializeComponent();
 
@@ -40,6 +44,9 @@ public partial class App : Application
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
+            builder.Services.AddSingleton<IMcpGrantRepository>(_ => new JsonMcpGrantRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<McpPermissionsViewModel>();
+            builder.Services.AddSingleton<McpPermissionsPage>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync();
@@ -47,6 +54,7 @@ public partial class App : Application
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
+            _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -74,7 +82,8 @@ public partial class App : Application
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh);
+        var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, mcp);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
