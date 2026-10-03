@@ -9,6 +9,7 @@ internal sealed class SshNetSession : ISshScriptSession
 {
     private readonly CancellationTokenSource _scriptStop = new();
     private Task<SshScriptResult>? _scriptCore;
+    private Exception? _scriptSessionFailure;
     internal TimeSpan ScriptTimeout { get; set; } = TimeSpan.FromSeconds(30);
     private readonly SshClient _client;
     private readonly SshHostKey? _trustedKey;
@@ -86,7 +87,15 @@ internal sealed class SshNetSession : ISshScriptSession
     private void OnErrorOccurred(object? sender, ExceptionEventArgs args)
     {
         // Never disconnect/dispose on a protocol worker: library disposal may join that very worker.
-        lock (_closeLock) if (_scriptCore is not null) return; // The exclusive shell preserves its own first cause.
+        lock (_closeLock)
+        {
+            if (_scriptCore is not null)
+            {
+                // Exclusive close joins the listener but reports an aggregate. Retain its original cause for classification.
+                _scriptSessionFailure ??= args.Exception;
+                return;
+            }
+        }
         _ = BeginClose(HostKeyFailure ?? SshSessionFactory.Classify(args.Exception));
     }
 
@@ -164,6 +173,14 @@ internal sealed class SshNetSession : ISshScriptSession
                 throw new OperationCanceledException("SSH 脚本已取消。", failure, callerToken.IsCancellationRequested ? callerToken : _scriptStop.Token);
             if (deadline.IsCancellationRequested)
                 throw new SshConnectionException(SshFailureKind.Timeout, "SSH 脚本执行超时。", failure);
+            var sessionFailure = Volatile.Read(ref _scriptSessionFailure);
+            if (sessionFailure is not null)
+            {
+                var classifiedFailure = SshSessionFactory.Classify(sessionFailure);
+                if (failure is not null && !ReferenceEquals(failure, sessionFailure))
+                    classifiedFailure.Data["SshExclusiveCleanupFailure"] = failure;
+                throw classifiedFailure;
+            }
             if (failure is not null) throw SshSessionFactory.Classify(failure);
             if (shell is null || !shell.RemoteClosed)
                 throw new SshConnectionException(SshFailureKind.Network, "SSH 脚本连接在远端通道结束前中断。");
