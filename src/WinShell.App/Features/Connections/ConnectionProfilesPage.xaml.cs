@@ -14,7 +14,7 @@ public sealed partial class ConnectionProfilesPage : Page
     private readonly HashSet<Task> _pendingActions = [];
     private readonly List<Exception> _shutdownFailures = [];
     private Guid? _savedProfileId;
-    private bool _loaded, _closing;
+    private bool _loaded, _closing, _updatingSelectors;
     private ContentDialog? _activeDialog;
     private Task? _shutdown;
 
@@ -23,8 +23,8 @@ public sealed partial class ConnectionProfilesPage : Page
         ViewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
-        ProtocolBox.ItemsSource = new[] { new Choice<ConnectionProtocol>(ConnectionProtocol.Ssh, "SSH"), new(ConnectionProtocol.Ftp, "FTP"), new(ConnectionProtocol.Ftps, "FTPS") };
-        AuthenticationBox.ItemsSource = new[] { new Choice<AuthenticationMethod>(AuthenticationMethod.Password, "密码"), new(AuthenticationMethod.PrivateKey, "私钥") };
+        ProtocolBox.SelectionChanged += ProtocolBox_SelectionChanged;
+        AuthenticationBox.SelectionChanged += AuthenticationBox_SelectionChanged;
         SetEditor(null);
         Loaded += Page_Loaded;
     }
@@ -62,6 +62,8 @@ public sealed partial class ConnectionProfilesPage : Page
         _closing = true;
         IsEnabled = false;
         Loaded -= Page_Loaded;
+        ProtocolBox.SelectionChanged -= ProtocolBox_SelectionChanged;
+        AuthenticationBox.SelectionChanged -= AuthenticationBox_SelectionChanged;
         SecretInput.Password = "";
         _activeDialog?.Hide();
         _shutdown = SettleActionsAsync();
@@ -80,9 +82,40 @@ public sealed partial class ConnectionProfilesPage : Page
         SecretInput.Password = "";
         _editor = new(profile);
         EditorPanel.DataContext = _editor;
+        _updatingSelectors = true;
+        try
+        {
+            ProtocolBox.SelectedItem = _editor.Protocol switch
+            {
+                ConnectionProtocol.Ssh => SshProtocolItem,
+                ConnectionProtocol.Ftp => FtpProtocolItem,
+                ConnectionProtocol.Ftps => FtpsProtocolItem,
+                _ => null
+            };
+            AuthenticationBox.SelectedItem = _editor.AuthenticationMethod switch
+            {
+                AuthenticationMethod.Password => PasswordAuthenticationItem,
+                AuthenticationMethod.PrivateKey => PrivateKeyAuthenticationItem,
+                _ => null
+            };
+        }
+        finally { _updatingSelectors = false; }
         _savedProfileId = profile?.Id;
         EditorHeading.Text = profile is null ? "新建连接" : "编辑连接";
         DeleteProfileButton.IsEnabled = SaveCredentialButton.IsEnabled = CheckCredentialButton.IsEnabled = DeleteCredentialButton.IsEnabled = profile is not null;
+    }
+    private void ProtocolBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_closing || _updatingSelectors || !ViewModel.CanEdit) return;
+        if (ReferenceEquals(ProtocolBox.SelectedItem, SshProtocolItem)) _editor.Protocol = ConnectionProtocol.Ssh;
+        else if (ReferenceEquals(ProtocolBox.SelectedItem, FtpProtocolItem)) _editor.Protocol = ConnectionProtocol.Ftp;
+        else if (ReferenceEquals(ProtocolBox.SelectedItem, FtpsProtocolItem)) _editor.Protocol = ConnectionProtocol.Ftps;
+    }
+    private void AuthenticationBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_closing || _updatingSelectors || !ViewModel.CanEdit) return;
+        if (ReferenceEquals(AuthenticationBox.SelectedItem, PasswordAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.Password;
+        else if (ReferenceEquals(AuthenticationBox.SelectedItem, PrivateKeyAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.PrivateKey;
     }
     private void NewProfile_Click(object sender, RoutedEventArgs args)
     {
@@ -108,6 +141,8 @@ public sealed partial class ConnectionProfilesPage : Page
     });
     private async void SaveProfile_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
     {
+        if (ProtocolBox.SelectedItem is null || AuthenticationBox.SelectedItem is null)
+        { ViewModel.ReportValidationError("请选择协议和认证方式后再保存。"); return; }
         ConnectionProfile profile;
         try { profile = _editor.BuildProfile(); }
         catch (ArgumentException exception) { ViewModel.ReportValidationError(exception.Message); return; }
@@ -158,5 +193,4 @@ public sealed partial class ConnectionProfilesPage : Page
     });
 
     public void FocusProfiles() => ProfilesList.Focus(FocusState.Programmatic);
-    private sealed record Choice<T>(T Value, string Label);
 }
