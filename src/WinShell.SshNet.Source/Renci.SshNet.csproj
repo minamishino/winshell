@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Renci.SshNet</AssemblyName>
+    <RootNamespace>Renci.SshNet</RootNamespace>
+    <Product>SSH.NET (WinShell reviewed exclusive Shell supplement)</Product>
+    <Version>2026.0.0.1</Version>
+    <!-- Verified against the official 2026.0.0 package from this source commit. -->
+    <AssemblyVersion>2026.0.0.1</AssemblyVersion>
+    <FileVersion>2026.0.0.1</FileVersion>
+    <InformationalVersion>2026.0.0+7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e.winshell-shell</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Copyright>Copyright © Renci 2010-2026</Copyright>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UpstreamRoot>$(MSBuildThisFileDirectory)../../artifacts/ssh-script-20261004/source/patched/SSH.NET-7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e</UpstreamRoot>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(UpstreamRoot)/Renci.SshNet.snk</AssemblyOriginatorKeyFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(UpstreamRoot)/src/Renci.SshNet/**/*.cs" Exclude="$(UpstreamRoot)/src/Renci.SshNet/obj/**;$(UpstreamRoot)/src/Renci.SshNet/bin/**" />
+    <Compile Include="SnapshotAssembly.cs" />
+    <None Include="$(UpstreamRoot)/LICENSE" Link="SSH.NET.LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <Target Name="RequirePreparedSource" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(UpstreamRoot)/LICENSE')" Text="Run Prepare-Source.ps1 before building the reviewed SSH source snapshot." />
+  </Target>
+</Project>
