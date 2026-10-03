@@ -4,10 +4,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="WinShell">
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <StackPanel Margin="32" Spacing="12" VerticalAlignment="Center">
-            <TextBlock Text="WinShell" Style="{ThemeResource TitleTextBlockStyle}" />
-            <TextBlock Text="原生 Windows SSH 工作台" />
-            <TextBlock Text="应用基础已启动，连接与终端功能尚未实现。" TextWrapping="Wrap" />
-        </StackPanel>
+        <NavigationView x:Name="Navigation" IsSettingsVisible="False" PaneDisplayMode="LeftCompact" IsBackButtonVisible="Collapsed" Header="WinShell">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="ConnectionsItem" Content="连接配置" Icon="Contact" AutomationProperties.Name="连接配置"/>
+            </NavigationView.MenuItems>
+        </NavigationView>
     </Grid>
 </Window>
