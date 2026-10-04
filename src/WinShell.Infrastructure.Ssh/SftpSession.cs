@@ -91,10 +91,14 @@ internal sealed class SftpSession : ISftpSession
     private async Task<FileTransferResult> UploadCoreAsync(string localPath, string target, string temporary, IProgress<FileTransferProgress>? progress, CancellationToken token)
     {
         var ownsTemporary = false; var streamClosed = false;
+        var createAttempted = false; var renameAttempted = false; var renameRejected = false;
         try
         {
             if (await _client.ExistsAsync(target, token).ConfigureAwait(false)) throw new IOException("上传目标已存在；首版不覆盖文件。");
             await using var input = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            // OpenAsync includes OPEN and FSTAT. Failure can occur after the server created the path,
+            // even when this API never returns a stream/handle proving ownership to this caller.
+            createAttempted = true;
             var remote = await _client.OpenAsync(temporary, FileMode.CreateNew, FileAccess.Write, token).ConfigureAwait(false);
             ownsTemporary = true;
             var result = await CopyRemoteAsync(remote, input, true, input.Length, progress, token).ConfigureAwait(false);
@@ -102,17 +106,29 @@ internal sealed class SftpSession : ISftpSession
             token.ThrowIfCancellationRequested();
             if (await _client.ExistsAsync(target, token).ConfigureAwait(false)) throw new IOException("上传目标已存在，临时文件未提交。");
             // Standard SFTP v3 RENAME fails if destination exists; never use POSIX overwrite rename.
-            await _client.RenameFileAsync(temporary, target, token).ConfigureAwait(false);
+            renameAttempted = true;
+            try { await _client.RenameFileAsync(temporary, target, token).ConfigureAwait(false); }
+            catch (SftpException) { renameRejected = true; throw; } // A received failure STATUS confirms rejection.
             ownsTemporary = false;
             return result;
         }
         catch (Exception error)
         {
+            var renameUnconfirmed = renameAttempted && !renameRejected;
+            if (createAttempted)
+            {
+                error.Data["RemoteMutationPhase"] = renameAttempted ? "RenameTemporary" : ownsTemporary ? "WriteTemporary" : "CreateTemporary";
+                error.Data["RemoteTemporaryOwnershipConfirmed"] = ownsTemporary;
+                if (!ownsTemporary) error.Data["RemoteTemporaryFile"] = temporary;
+            }
+            if (renameUnconfirmed) error.Data["RemoteDestinationFile"] = target;
             if (ownsTemporary)
             {
                 // After a failed write, disconnect precedes stream disposal to prevent a cancelled tail flush.
                 // A successfully closed stream permits one bounded best-effort unlink of our exact temporary path.
-                if (streamClosed && _client.IsConnected)
+                // An unacknowledged rename may already have moved the owned file. Neither path is
+                // safe to delete or retry now; retain both exact paths and the original failure.
+                if (streamClosed && !renameUnconfirmed && _client.IsConnected)
                 {
                     try { using var cleanup = new CancellationTokenSource(_client.OperationTimeout); await _client.DeleteFileAsync(temporary, cleanup.Token).ConfigureAwait(false); ownsTemporary = false; }
                     catch (Exception cleanupError) { error.Data["SftpCleanupFailure"] = cleanupError; }
