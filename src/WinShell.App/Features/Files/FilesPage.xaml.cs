@@ -64,15 +64,18 @@ public sealed partial class FilesPage : Page
         // Windows App SDK 2.x returns a path without creating a placeholder file.
         // Never feed an untrusted remote filename into a Windows path or picker suggestion.
         var picker = new FileSavePicker(_windowId) { SuggestedFileName = "download", ShowOverwritePrompt = false, CommitButtonText = "选择下载路径" };
-        var selected = await picker.PickSaveFileAsync().AsTask(_stop.Token);
+        string? selectedPath;
+        selectedPath = (await picker.PickSaveFileAsync().AsTask(_stop.Token))?.Path;
         _stop.Token.ThrowIfCancellationRequested();
-        if (selected is not null) await ViewModel.DownloadAsync(entry, selected.Path);
+        if (selectedPath is not null) await ViewModel.DownloadAsync(entry, selectedPath);
     });
     private async void Upload_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
-        var selected = await new FileOpenPicker(_windowId).PickSingleFileAsync().AsTask(_stop.Token);
+        var picker = new FileOpenPicker(_windowId);
+        string? selectedPath;
+        selectedPath = (await picker.PickSingleFileAsync().AsTask(_stop.Token))?.Path;
         _stop.Token.ThrowIfCancellationRequested();
-        if (selected is not null) await ViewModel.UploadAsync(selected.Path, string.IsNullOrWhiteSpace(UploadName.Text) ? System.IO.Path.GetFileName(selected.Path) : UploadName.Text);
+        if (selectedPath is not null) await ViewModel.UploadAsync(selectedPath, string.IsNullOrWhiteSpace(UploadName.Text) ? System.IO.Path.GetFileName(selectedPath) : UploadName.Text);
     });
     public Task CloseProfileAsync(Guid profileId) => ViewModel.ConnectedProfileId == profileId ? CancelAndDisconnectAsync() : Task.CompletedTask;
     private async Task CancelAndDisconnectAsync() { ViewModel.Cancel(); await _action; if (!_closing) await RunAsync(ViewModel.DisconnectAsync); }
