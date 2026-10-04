@@ -4,6 +4,10 @@ using Microsoft.UI.Xaml;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
+using WinShell.App.Features.Docker;
+using WinShell.Core.Docker;
+using WinShell.Core.Connections;
+using WinShell.Infrastructure.Ssh.Docker;
 using WinShell.Core.Ssh;
 using WinShell.Infrastructure.Ssh;
 using WinShell.Infrastructure.Windows.Ssh;
@@ -22,6 +26,7 @@ public partial class App : Application
     private WorkspaceViewModel? _workspace;
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
+    private DockerPage? _dockerPage;
     private Task? _shutdown;
 
     public App() => InitializeComponent();
@@ -37,9 +42,12 @@ public partial class App : Application
             builder.Services.AddSingleton<WorkspaceViewModel>();
             builder.Services.AddSingleton<ConnectionProfilesPage>();
             builder.Services.AddSingleton<IKnownHostRepository>(_ => new JsonKnownHostRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<ConnectionAdmissionBudget>();
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
+            builder.Services.AddSingleton<IDockerService, DockerService>();
+            builder.Services.AddSingleton<DockerPage>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync();
@@ -47,6 +55,7 @@ public partial class App : Application
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
+            _dockerPage = _host.Services.GetRequiredService<DockerPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -74,7 +83,8 @@ public partial class App : Application
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh);
+        var docker = AttemptAsync(() => _dockerPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, docker);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
