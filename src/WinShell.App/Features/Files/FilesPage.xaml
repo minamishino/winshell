@@ -8,7 +8,7 @@
   <TextBlock Text="SFTP 文件" Style="{ThemeResource TitleTextBlockStyle}"/>
   <Grid Grid.Row="1" ColumnSpacing="8">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <ComboBox x:Name="Profiles" PlaceholderText="选择已保存的 SSH 配置" DisplayMemberPath="Name" HorizontalAlignment="Stretch" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="SFTP 连接配置"/>
+   <ComboBox x:Name="Profiles" PlaceholderText="选择已保存的 SSH 配置" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="SFTP 连接配置"/>
    <Button Grid.Column="1" Content="连接" Click="Connect_Click" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="连接 SFTP"/>
    <Button Grid.Column="2" Content="断开" Click="Disconnect_Click" IsEnabled="{Binding CanBrowse}" AutomationProperties.Name="断开 SFTP"/>
    <Button Grid.Column="3" Content="重新加载配置" Click="Reload_Click" IsEnabled="{Binding CanConnect}"/>
