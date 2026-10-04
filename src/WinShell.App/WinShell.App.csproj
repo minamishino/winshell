@@ -21,5 +21,11 @@
     <ProjectReference Include="..\WinShell.Infrastructure.Ssh\WinShell.Infrastructure.Ssh.csproj" />
     <ProjectReference Include="..\WinShell.Core\WinShell.Core.csproj" />
     <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
+    <ProjectReference Include="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" ReferenceOutputAssembly="false" AdditionalProperties="Platform=x64" />
   </ItemGroup>
+  <Target Name="CopyNativeRenderer" AfterTargets="Build">
+    <ItemGroup><NativeRendererFiles Include="../WinShell.Terminal.NativeHost/bin/x64/$(Configuration)/$(TargetFramework)/win-x64/*" /></ItemGroup>
+    <Error Condition="'@(NativeRendererFiles)' == ''" Text="Native renderer output must be built before packaging the App." />
+    <Copy SourceFiles="@(NativeRendererFiles)" DestinationFolder="$(OutDir)Terminal" SkipUnchangedFiles="false" />
+  </Target>
 </Project>
