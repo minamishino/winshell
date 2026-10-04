@@ -216,6 +216,7 @@ public sealed class NativeTerminalControl : UserControl
         _presenter.Dispose();
         if (_subscribedRoot is { } root) root.Changed -= RootChanged;
         _subscribedRoot = null;
+        _stop.Dispose();
         if (failures.Count != 0) throw new AggregateException(failures);
     }
     private sealed class RendererDestination(RendererClient renderer) : Stream
