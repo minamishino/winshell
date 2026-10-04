@@ -430,6 +430,7 @@
       "winshell.infrastructure.windows": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Windows.Console.ConPTY": "[1.25.260930003, )",
           "WinShell.Core": "[1.0.0, )"
         }
       },
@@ -453,6 +454,12 @@
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12"
         }
+      },
+      "Microsoft.Windows.Console.ConPTY": {
+        "type": "CentralTransitive",
+        "requested": "[1.25.260930003, )",
+        "resolved": "1.25.260930003",
+        "contentHash": "gQ/kH5cA4jVvzIEGZKxHiVCRC9aelpHW5xn45Sh+bflv2kuyXi5JFHJpAlzdouLYpeSCcjwq6y1Y/vcy5Wxwew=="
       },
       "SSH.NET": {
         "type": "CentralTransitive",
@@ -492,6 +499,12 @@
         "type": "Transitive",
         "resolved": "10.0.12",
         "contentHash": "sOZM+VyRj1pg/ItlHsvrSbjws6oGqZveTzTNBGZ9ziwRDyKsOF3ub6vhvOdxotCIqtlnyHAIwP5sLNvgiZC+pQ=="
+      },
+      "Microsoft.Windows.Console.ConPTY": {
+        "type": "CentralTransitive",
+        "requested": "[1.25.260930003, )",
+        "resolved": "1.25.260930003",
+        "contentHash": "gQ/kH5cA4jVvzIEGZKxHiVCRC9aelpHW5xn45Sh+bflv2kuyXi5JFHJpAlzdouLYpeSCcjwq6y1Y/vcy5Wxwew=="
       }
     }
   }
