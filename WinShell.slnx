@@ -7,5 +7,6 @@
     <Project Path="src/WinShell.Infrastructure.Windows/WinShell.Infrastructure.Windows.csproj" />
     <Project Path="src/WinShell.Infrastructure.Ssh/WinShell.Infrastructure.Ssh.csproj" />
     <Project Path="src/WinShell.App/WinShell.App.csproj" />
+    <Project Path="src/WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" />
   </Folder>
 </Solution>
