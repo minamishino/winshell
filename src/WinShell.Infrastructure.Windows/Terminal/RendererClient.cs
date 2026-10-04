@@ -173,7 +173,7 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
         _stop.Cancel();
         _reply?.TrySetCanceled();
         if (_start is not null) { try { await _start.ConfigureAwait(false); } catch (Exception error) { Fail(error); } }
-        if (_owner is null) return;
+        if (_owner is null) { _serial.Dispose(); _writeSerial.Dispose(); _stop.Dispose(); return; }
         try
         {
             if (!_owner.Completion.IsCompleted)
