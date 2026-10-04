@@ -1,0 +1,21 @@
+{
+  "release": "1.25.2733.0",
+  "sourceCommit": "dc8ae365847d41f62d1ebca93815bb00959bc12f",
+  "sourceUrl": "https://github.com/microsoft/terminal/tree/dc8ae365847d41f62d1ebca93815bb00959bc12f",
+  "archiveUrl": "https://github.com/microsoft/terminal/releases/download/v1.25.2733.0/Microsoft.WindowsTerminal_1.25.2733.0_x64.zip",
+  "archiveSha256": "BF3EF2012F6C44D8340A4C58125ACC9498D19B580F9890DC043CDF831852E796",
+  "archiveBytes": 12127272,
+  "entryCount": 63,
+  "expandedBytes": 34870043,
+  "entryRoot": "terminal-1.25.2733.0/",
+  "architecture": "x64",
+  "upstreamMinimumWindows": "10.0.19041.0",
+  "probeMinimumWindows": "10.0.19045.0",
+  "nativeVersion": "1.25.2609.30003",
+  "files": [
+    { "name": "Microsoft.Terminal.Control.dll", "bytes": 1706296, "sha256": "E27CB1D3D592934826152E0A2B3C2FB0B933C80D8DBD105EF2C869FC99E5D46B" },
+    { "name": "NOTICE.html", "bytes": 24362, "sha256": "9691413DFD4979A89D3A02853A7153FE5F40DF937CC817DD2715621EC8EA04EF" }
+  ],
+  "runtimeDependencies": "Windows API sets, UCRT, USER32, OLEAUT32, ole32, DWrite, d2d1, dxgi, d3d11, D3DCOMPILER_47, SHELL32; delay imports icu.dll and UIAutomationCore.DLL. No non-system DLL imports.",
+  "historyByteBudget": "unsupported; fixed HwndTerminal.cpp creates 9001 history lines"
+}
