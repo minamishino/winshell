@@ -108,6 +108,8 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
     {
         var message = error is OperationCanceledException ? "操作已取消；连接已弃用。" : error is SshConnectionException or ArgumentException or IOException or InvalidOperationException ? error.Message : "SFTP 操作失败。";
         if (error.Data["RemoteTemporaryFile"] is string remote) message += $" 远端临时文件可能残留：{remote}";
+        if (error.Data["RemoteTemporaryOwnershipConfirmed"] is false) message += " 创建结果和所有权未确认；未自动删除该路径。";
+        if (error.Data["RemoteDestinationFile"] is string destination) message += $" 提交结果未确认，目标可能已创建：{destination}。请检查远端状态后再操作；未自动重试或删除目标。";
         if (error.Data["LocalTemporaryFile"] is string local) message += $" 本地临时文件清理失败：{local}";
         return message;
     }
