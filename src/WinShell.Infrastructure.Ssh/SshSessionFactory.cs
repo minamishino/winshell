@@ -1,3 +1,4 @@
+using WinShell.Core.Connections;
 using WinShell.Core.Credentials;
 using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
@@ -13,38 +14,42 @@ public sealed class SshSessionFactory : ISshSessionFactory
     private readonly IKnownHostRepository _knownHosts;
     private readonly ICredentialStore _credentials;
     private readonly TimeSpan _timeout;
-    private readonly SemaphoreSlim _handshakes = new(4, 4);
-    private int _admitted;
+    private readonly ConnectionAdmissionBudget _budget;
 
     public SshSessionFactory(IKnownHostRepository knownHosts, ICredentialStore credentials)
-        : this(knownHosts, credentials, TimeSpan.FromSeconds(30)) { }
+        : this(knownHosts, credentials, new ConnectionAdmissionBudget(), TimeSpan.FromSeconds(30)) { }
+
+    public SshSessionFactory(IKnownHostRepository knownHosts, ICredentialStore credentials, ConnectionAdmissionBudget budget)
+        : this(knownHosts, credentials, budget, TimeSpan.FromSeconds(30)) { }
 
     internal SshSessionFactory(IKnownHostRepository knownHosts, ICredentialStore credentials, TimeSpan timeout)
+        : this(knownHosts, credentials, new ConnectionAdmissionBudget(), timeout) { }
+
+    internal SshSessionFactory(IKnownHostRepository knownHosts, ICredentialStore credentials, ConnectionAdmissionBudget budget, TimeSpan timeout)
     {
         _knownHosts = knownHosts ?? throw new ArgumentNullException(nameof(knownHosts));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
         _timeout = timeout;
+        _budget = budget ?? throw new ArgumentNullException(nameof(budget));
     }
 
     public async Task<SshConnectResult> ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        while (true)
-        {
-            var admitted = Volatile.Read(ref _admitted);
-            if (admitted >= 16) throw new SshConnectionException(SshFailureKind.Capacity, "SSH 连接尝试已达到 16 个上限，请稍后重试。");
-            if (Interlocked.CompareExchange(ref _admitted, admitted + 1, admitted) == admitted) break;
-        }
+        var lease = _budget.AdmitConnection();
+        var transferred = false;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(_timeout);
-        var entered = false;
+
         try
         {
-            await _handshakes.WaitAsync(deadline.Token).ConfigureAwait(false);
-            entered = true;
+            using var handshake = await _budget.EnterHandshakeAsync(deadline.Token).ConfigureAwait(false);
+
             // The library includes synchronous key parsing and disconnect paths; never enter them on the UI thread.
-            return await Task.Run(() => ConnectCoreAsync(profile, deadline.Token), CancellationToken.None).ConfigureAwait(false);
+            var result = await Task.Run(() => ConnectCoreAsync(profile, lease, deadline.Token), CancellationToken.None).ConfigureAwait(false);
+            transferred = result is SshConnectResult.Connected;
+            return result;
         }
         catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
         {
@@ -52,12 +57,11 @@ public sealed class SshSessionFactory : ISshSessionFactory
         }
         finally
         {
-            if (entered) _handshakes.Release();
-            Interlocked.Decrement(ref _admitted);
+            if (!transferred) lease.Dispose();
         }
     }
 
-    private async Task<SshConnectResult> ConnectCoreAsync(ConnectionProfile profile, CancellationToken cancellationToken)
+    private async Task<SshConnectResult> ConnectCoreAsync(ConnectionProfile profile, IDisposable lease, CancellationToken cancellationToken)
     {
         if (profile is null || ConnectionProfileValidator.Validate(profile).Count != 0 || profile.Protocol != ConnectionProtocol.Ssh)
             throw new SshConnectionException(SshFailureKind.InvalidProfile, "SSH 连接配置无效。");
@@ -75,7 +79,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
         cancellationToken.ThrowIfCancellationRequested();
         using var cancellableAuthentication = new CancellableAuthenticationMethod(authentication.Method, cancellationToken);
         var connection = new ConnectionInfo(endpoint.Host, endpoint.Port, profile.UserName, cancellableAuthentication) { Timeout = _timeout };
-        var session = new SshNetSession(new SshClient(connection) { KeepAliveInterval = TimeSpan.FromSeconds(30) }, trustedKey);
+        var session = new SshNetSession(new SshClient(connection) { KeepAliveInterval = TimeSpan.FromSeconds(30) }, trustedKey, lease);
         var transferred = false;
         Exception? connectionFailure = null;
         try
