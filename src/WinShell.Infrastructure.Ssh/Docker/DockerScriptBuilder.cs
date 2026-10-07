@@ -1,5 +1,6 @@
 using WinShell.Core.Docker;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace WinShell.Infrastructure.Ssh.Docker;
 
@@ -7,8 +8,8 @@ public static class DockerScriptBuilder
 {
     private static readonly UTF8Encoding Utf8 = new(false, true);
     // A clean child environment prevents context/TLS/API/config overrides redirecting the fixed daemon.
-    private const string Prefix = "exec env -i PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' HOME='/dev/null' docker --host 'unix:///var/run/docker.sock' ";
-    public static string List() => Finish("container ls --all --last 32 --no-trunc --format '{{json .}}'");
+    private const string ContainerFormat = "{\"ID\":{{json .ID}},\"Names\":{{json .Names}},\"Image\":{{json .Image}},\"State\":{{json .State}},\"Status\":{{json .Status}},\"Ports\":{{json .Ports}}}";
+    public static string List() => Finish("container ls --all --last 32 --no-trunc --format " + Quote(ContainerFormat));
     public static string Logs(string containerId) => Finish("container logs --tail 200 " + Identifier(containerId));
     public static string Change(string containerId, DockerContainerAction action)
     {
@@ -37,7 +38,11 @@ public static class DockerScriptBuilder
     private static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
     private static string Finish(string arguments)
     {
-        var script = Prefix + arguments + "\n";
+        // Read-only/control CLI operations do not create this configuration directory. A fresh
+        // platform-generated 128-bit name avoids loading another user's Docker config or context.
+        var configurationPath = "/tmp/.winshell-docker-config-" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        var script = "exec env -i PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' HOME='/' docker --config "
+            + Quote(configurationPath) + " --host 'unix:///var/run/docker.sock' " + arguments + "\n";
         ValidateText(script, 8192);
         return script;
     }
