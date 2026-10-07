@@ -7,6 +7,7 @@ namespace WinShell.App;
 public sealed class NativeDialogService : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    public Action<bool>? PresentationChanged { private get; set; }
     public void Dispose() => _gate.Dispose();
     public async Task<bool> ConfirmAsync(XamlRoot root, string title, string content, string accept,
         CancellationToken cancellationToken)
@@ -15,6 +16,7 @@ public sealed class NativeDialogService : IDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            PresentationChanged?.Invoke(true);
             var dialog = new ContentDialog
             {
                 XamlRoot = root, Title = title,
@@ -25,6 +27,6 @@ public sealed class NativeDialogService : IDisposable
             var result = await dialog.ShowAsync();
             return !cancellationToken.IsCancellationRequested && result == ContentDialogResult.Primary;
         }
-        finally { _gate.Release(); }
+        finally { try { PresentationChanged?.Invoke(false); } finally { _gate.Release(); } }
     }
 }
