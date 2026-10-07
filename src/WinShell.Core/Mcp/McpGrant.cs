@@ -5,20 +5,26 @@ using WinShell.Core.Ssh;
 
 namespace WinShell.Core.Mcp;
 
-/// <summary>A grant binds both scopes to one saved profile and previously trusted full host key.</summary>
-public sealed record McpGrant(Guid ProfileId, string ProfileBinding, string HostKeyBinding, bool ListProfiles, bool RunScript)
+/// <summary>A grant binds explicit scopes to one saved profile and previously trusted full host key.</summary>
+public sealed record McpGrant(Guid ProfileId, string ProfileBinding, string HostKeyBinding, bool ListProfiles, bool RunScript,
+    bool DockerRead = false, bool DockerControl = false, bool DockerExec = false)
 {
     public const string ProfileListScope = "ssh.list_profiles";
     public const string ScriptScope = "ssh.run_script";
+    public const string DockerReadScope = "docker.read";
+    public const string DockerControlScope = "docker.control";
+    public const string DockerExecScope = "docker.exec";
 
-    public static McpGrant Create(ConnectionProfile profile, SshHostKey key, bool listProfiles, bool runScript)
+    public static McpGrant Create(ConnectionProfile profile, SshHostKey key, bool listProfiles, bool runScript,
+        bool dockerRead = false, bool dockerControl = false, bool dockerExec = false)
     {
         ArgumentNullException.ThrowIfNull(key);
-        return new(profile.Id, BindProfile(profile), BindKey(key), listProfiles, runScript);
+        return new(profile.Id, BindProfile(profile), BindKey(key), listProfiles, runScript, dockerRead, dockerControl, dockerExec);
     }
     public bool Allows(ConnectionProfile profile, SshHostKey key, string scope) =>
         ProfileId == profile.Id && profile.Protocol == ConnectionProtocol.Ssh && ConnectionProfileValidator.Validate(profile).Count == 0 && ProfileBinding == BindProfile(profile) && HostKeyBinding == BindKey(key) &&
-        (scope == ProfileListScope && ListProfiles || scope == ScriptScope && RunScript);
+        (scope == ProfileListScope && ListProfiles || scope == ScriptScope && RunScript ||
+         scope == DockerReadScope && DockerRead || scope == DockerControlScope && DockerControl || scope == DockerExecScope && DockerExec);
 
     public static string BindProfile(ConnectionProfile profile)
     {
