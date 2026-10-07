@@ -10,6 +10,7 @@ public sealed class ConnectionProfileEditorViewModel : ObservableObject
     private string _displayName, _host, _userName, _groupName, _portText, _privateKeyPath;
     private ConnectionProtocol _protocol;
     private AuthenticationMethod _authenticationMethod;
+    private FtpsMode _ftpsMode;
 
     public ConnectionProfileEditorViewModel(ConnectionProfile? initialProfile)
     {
@@ -21,6 +22,7 @@ public sealed class ConnectionProfileEditorViewModel : ObservableObject
         _groupName = initialProfile?.GroupName ?? "";
         _portText = (initialProfile?.Port ?? 22).ToString(System.Globalization.CultureInfo.InvariantCulture);
         _privateKeyPath = initialProfile?.PrivateKeyPath ?? "";
+        _ftpsMode = initialProfile?.FtpsMode ?? FtpsMode.Explicit;
         _protocol = initialProfile?.Protocol ?? ConnectionProtocol.Ssh;
         _authenticationMethod = initialProfile?.AuthenticationMethod ?? AuthenticationMethod.Password;
     }
@@ -34,13 +36,14 @@ public sealed class ConnectionProfileEditorViewModel : ObservableObject
     public ConnectionProtocol Protocol { get => _protocol; set => SetProperty(ref _protocol, value); }
     public AuthenticationMethod AuthenticationMethod { get => _authenticationMethod; set => SetProperty(ref _authenticationMethod, value); }
 
+    public FtpsMode FtpsMode { get => _ftpsMode; set => SetProperty(ref _ftpsMode, value); }
     public ConnectionProfile BuildProfile()
     {
         if (!int.TryParse(PortText, out var port))
             throw new ArgumentException("端口必须是 1 至 65535 的整数。");
         var profile = new ConnectionProfile(_profileId, DisplayName.Trim(), Protocol, Host.Trim(), port,
             UserName.Trim(), GroupName.Trim(), AuthenticationMethod,
-            string.IsNullOrWhiteSpace(PrivateKeyPath) ? null : PrivateKeyPath.Trim(), _credentialReference);
+            string.IsNullOrWhiteSpace(PrivateKeyPath) ? null : PrivateKeyPath.Trim(), _credentialReference, FtpsMode);
         var errors = ConnectionProfileValidator.Validate(profile);
         if (errors.Count != 0)
             throw new ArgumentException(string.Join(Environment.NewLine, errors.Select(error => error.Message)));
