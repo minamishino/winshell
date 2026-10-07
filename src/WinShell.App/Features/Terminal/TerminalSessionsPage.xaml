@@ -36,6 +36,7 @@
             <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
         </ScrollViewer>
         <StackPanel Grid.Row="4" Spacing="4">
+            <TextBlock Text="{Binding SelectedTab.TargetDescription}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
             <TextBlock Text="{Binding SelectedTab.Status}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
             <TextBlock x:Name="Feedback" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
         </StackPanel>
