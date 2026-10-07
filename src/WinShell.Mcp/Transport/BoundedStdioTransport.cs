@@ -113,7 +113,7 @@ public sealed class BoundedStdioTransport : ITransport
                         if (_held == 16) { Stop(TransportStopReason.CapacityExceeded); return; }
                         _maximumHeld = Math.Max(_maximumHeld, ++_held); // Includes the parser reservation.
                     }
-                    var message = Parse(buffer.AsSpan(consumed, length));
+                    var message = Parse(buffer.AsMemory(consumed, length));
                     var control = IsControl(message);
                     lock (_gate)
                     {
@@ -138,13 +138,14 @@ public sealed class BoundedStdioTransport : ITransport
         finally { _messages.Writer.TryComplete(); }
     }
 
-    private static JsonRpcMessage Parse(ReadOnlySpan<byte> payload)
+    private static JsonRpcMessage Parse(ReadOnlyMemory<byte> payload)
     {
-        _ = StrictUtf8.GetCharCount(payload);
-        var reader = new Utf8JsonReader(payload, new JsonReaderOptions { MaxDepth = 64 });
+        _ = StrictUtf8.GetCharCount(payload.Span);
+        var reader = new Utf8JsonReader(payload.Span, new JsonReaderOptions { MaxDepth = 64 });
         var tokens = 0;
         while (reader.Read()) if (++tokens > 8192) throw new InvalidDataException("Token limit.");
-        var message = JsonSerializer.Deserialize<JsonRpcMessage>(payload, McpJsonUtilities.DefaultOptions)
+        using var document = JsonDocument.Parse(payload, new JsonDocumentOptions { MaxDepth = 64, AllowDuplicateProperties = false });
+        var message = document.RootElement.Deserialize<JsonRpcMessage>(McpJsonUtilities.DefaultOptions)
             ?? throw new InvalidDataException("Missing message.");
         if (message is JsonRpcMessageWithId { Id.Id: string id } && id.Length > 128)
             throw new InvalidDataException("ID limit.");
