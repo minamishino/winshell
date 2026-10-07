@@ -1,14 +1,16 @@
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using WinShell.Core.Ssh;
+using WinShell.Core.Tunnels;
 using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 
 namespace WinShell.Infrastructure.Ssh;
 
-internal sealed class SshNetSession : ISshScriptSession
+internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession
 {
     private readonly CancellationTokenSource _scriptStop = new();
     private Task<SshScriptResult>? _scriptCore;
+    private SshTunnelSession? _tunnel;
     private Exception? _scriptSessionFailure;
     internal TimeSpan ScriptTimeout { get; set; } = TimeSpan.FromSeconds(30);
     private readonly SshClient _client;
@@ -91,7 +93,7 @@ internal sealed class SshNetSession : ISshScriptSession
         if (byteCount > 8192) throw new ArgumentException("SSH 脚本不能超过 8192 UTF-8 字节。", nameof(script));
         lock (_closeLock)
         {
-            if (_scriptCore is not null || _closeTask is not null) throw new InvalidOperationException("SSH 脚本会话只能运行一次。");
+            if (_scriptCore is not null || _tunnel is not null || _closeTask is not null) throw new InvalidOperationException("SSH 脚本会话只能运行一次。");
             cancellationToken.ThrowIfCancellationRequested();
             var scriptBytes = encoding.GetBytes(script);
             // Publish the owned core before any worker can close the session. The outer wrapper is never joined by close.
@@ -170,6 +172,17 @@ internal sealed class SshNetSession : ISshScriptSession
         finally { shell?.Dispose(); }
     }
 
+    public Task<ITunnelSession> StartTunnelAsync(TunnelDefinition definition, CancellationToken cancellationToken)
+    {
+        TunnelDefinitionValidator.Validate(definition);
+        lock (_closeLock)
+        {
+            if (_scriptCore is not null || _tunnel is not null || _closeTask is not null) throw new InvalidOperationException("SSH 会话能力只能使用一次。");
+            cancellationToken.ThrowIfCancellationRequested();
+            _tunnel = new SshTunnelSession(_client, definition, BeginClose);
+            return _tunnel.StartAsync(cancellationToken);
+        }
+    }
     public Task DisconnectAsync(CancellationToken cancellationToken)
     {
         // Once close is requested, cleanup must finish even when its caller cancels.
@@ -194,6 +207,20 @@ internal sealed class SshNetSession : ISshScriptSession
                     catch (Exception) { /* The RunScriptAsync caller observes the execution failure. */ }
                 }
                 _scriptStop.Dispose();
+                List<Exception>? tunnelCleanupFailures = null;
+                if (_tunnel is not null)
+                {
+                    // A cleanup error must not skip the other owned joins or release capacity early.
+                    try { _tunnel.StopAdmission(); }
+                    catch (Exception error) { (tunnelCleanupFailures ??= []).Add(error); }
+                    try { _client.Disconnect(); }
+                    catch (Exception error) { (tunnelCleanupFailures ??= []).Add(error); }
+                    try { await _tunnel.Startup.ConfigureAwait(false); }
+                    catch (Exception) { /* StartTunnelAsync reports the startup failure. */ }
+                    await _tunnel.Completion.ConfigureAwait(false);
+                    try { _tunnel.DisposePort(); }
+                    catch (Exception error) { (tunnelCleanupFailures ??= []).Add(error); }
+                }
                 _client.ErrorOccurred -= OnErrorOccurred;
                 try { _client.Dispose(); }
                 finally
@@ -202,6 +229,7 @@ internal sealed class SshNetSession : ISshScriptSession
                     _admission?.Dispose();
                     Closed?.Invoke(this, new SshSessionClosedEventArgs(failure));
                 }
+                if (tunnelCleanupFailures is not null) throw new AggregateException("隧道关闭期间发生错误，已完成其余资源清理。", tunnelCleanupFailures);
             });
     }
 }
