@@ -7,7 +7,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Text="远程 Docker · 最近 32 个容器" Style="{ThemeResource TitleTextBlockStyle}"/>
         <TextBlock Grid.Row="1" Text="仅支持 Linux / POSIX。服务器需已安装 Docker CLI，SSH 账号需有 /var/run/docker.sock 权限。" TextWrapping="Wrap"/>
@@ -47,6 +47,10 @@
         </Grid>
         <TextBox Grid.Row="6" Text="{Binding Output, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
                  Header="本次结果（标准输出最多 32 KiB，错误输出最多 16 KiB）" FontFamily="Consolas" AutomationProperties.Name="Docker 有限操作结果"/>
-        <TextBlock Grid.Row="7" Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <StackPanel Grid.Row="7" Orientation="Horizontal" Spacing="8">
+            <ComboBox x:Name="TerminalShellSelector" ItemsSource="{Binding TerminalShells}" SelectedItem="{Binding SelectedShell, Mode=TwoWay}" Header="容器 shell（Sh=/bin/sh，Bash=/bin/bash）" AutomationProperties.Name="容器交互终端 shell"/>
+            <Button x:Name="OpenTerminalButton" Content="打开容器终端" Click="Terminal_Click" IsEnabled="{Binding CanOpenTerminal}" VerticalAlignment="Bottom" AutomationProperties.Name="在 SSH 工作区打开选中容器的交互终端"/>
+        </StackPanel>
+        <TextBlock Grid.Row="8" Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
     </Grid>
 </Page>
