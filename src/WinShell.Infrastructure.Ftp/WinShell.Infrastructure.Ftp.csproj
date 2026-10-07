@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup><None Include="THIRD-PARTY-NOTICES.txt" Link="FTP-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" /><PackageReference Include="FluentFTP" /><ProjectReference Include="../WinShell.Core/WinShell.Core.csproj" /><InternalsVisibleTo Include="WinShell.App" /></ItemGroup>
+</Project>
