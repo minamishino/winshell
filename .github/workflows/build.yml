@@ -24,6 +24,8 @@ jobs:
           global-json-file: global.json
       - name: Prepare fixed SSH source
         run: pwsh -NoProfile -File src/WinShell.SshNet.Source/Prepare-Source.ps1
+      - name: Prepare fixed native terminal engine
+        run: pwsh -NoProfile -File src/WinShell.Terminal.NativeHost/Initialize-StableNativeEngine.ps1
       - name: Restore locked dependencies
         run: dotnet restore WinShell.slnx --locked-mode -p:Platform=x64
       - name: Build Release
