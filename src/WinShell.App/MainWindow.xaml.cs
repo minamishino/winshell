@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
+using WinShell.App.Features.Docker;
 using WinShell.Core.Profiles;
 using WinShell.App.Features.Files;
 
@@ -25,7 +26,7 @@ public sealed partial class MainWindow : Window
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TunnelsPage tunnelsPage)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TunnelsPage tunnelsPage, DockerPage dockerPage)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
@@ -39,6 +40,7 @@ public sealed partial class MainWindow : Window
         TunnelsHost.Content = tunnelsPage;
         filesPage.SetOwnerWindow(this);
         McpHost.Content = mcpPage;
+        DockerHost.Content = dockerPage;
         WorkspaceHost.DataContext = workspace;
         Navigation.SelectedItem = ConnectionsItem;
         _connectionsPage.ConnectSshRequested += Connections_ConnectSshRequested;
@@ -50,6 +52,7 @@ public sealed partial class MainWindow : Window
     }
 
     public void SetShutdownHandler(Func<Task> shutdownAsync) => _shutdownAsync = shutdownAsync;
+
 
     private void Connections_OpenProfileRequested(object? sender, ConnectionProfile profile)
     {
@@ -84,14 +87,16 @@ public sealed partial class MainWindow : Window
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || McpHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || McpHost is null || DockerHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
         var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
         var showMcp = ReferenceEquals(args.SelectedItem, McpItem);
         McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showTunnels || showMcp ? Visibility.Collapsed : Visibility.Visible;
+        var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
+        DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showTunnels || showMcp || showDocker ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;

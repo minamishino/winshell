@@ -10,8 +10,11 @@ using Microsoft.UI.Xaml;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
-using WinShell.Core.Ssh;
+using WinShell.App.Features.Docker;
+using WinShell.Core.Docker;
 using WinShell.Core.Connections;
+using WinShell.Infrastructure.Ssh.Docker;
+using WinShell.Core.Ssh;
 using WinShell.Core.Files;
 using WinShell.App.Features.Files;
 using WinShell.Infrastructure.Ssh;
@@ -33,6 +36,7 @@ public partial class App : Application
     private SshSessionsPage? _sshPage;
     private FilesPage? _filesPage;
     private TunnelsPage? _tunnelsPage;
+    private DockerPage? _dockerPage;
     private Task? _shutdown;
     private McpPermissionsPage? _mcpPage;
 
@@ -62,6 +66,8 @@ public partial class App : Application
             builder.Services.AddSingleton<IMcpGrantRepository>(_ => new JsonMcpGrantRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<McpPermissionsViewModel>();
             builder.Services.AddSingleton<McpPermissionsPage>();
+            builder.Services.AddSingleton<IDockerService, DockerService>();
+            builder.Services.AddSingleton<DockerPage>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync();
@@ -72,6 +78,7 @@ public partial class App : Application
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
             _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
             _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
+            _dockerPage = _host.Services.GetRequiredService<DockerPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -102,7 +109,8 @@ public partial class App : Application
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var tunnels = AttemptAsync(() => _tunnelsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp, tunnels);
+        var docker = AttemptAsync(() => _dockerPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp, tunnels, docker);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
