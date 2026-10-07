@@ -2,6 +2,7 @@ using WinShell.Infrastructure.Windows.Profiles;
 using WinShell.Mcp;
 using WinShell.Core.Mcp;
 using WinShell.Core.Ssh;
+using WinShell.Core.Connections;
 using WinShell.Infrastructure.Ssh;
 using WinShell.Infrastructure.Windows.Credentials;
 using WinShell.Infrastructure.Windows.Ssh;
@@ -16,7 +17,8 @@ try
     await using var output = StandardPipeStreams.OpenOutput();
     var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinShell");
     var reader = new McpPermissionReader(new JsonMcpGrantRepository(root), new JsonConnectionProfileRepository(root), new JsonKnownHostRepository(root));
-    var tools = new McpToolService(reader, authorized => new SshSessionFactory(new GrantedKnownHosts(authorized), new WindowsCredentialStore()));
+    var connectionBudget = new ConnectionAdmissionBudget();
+    var tools = new McpToolService(reader, authorized => new SshSessionFactory(new GrantedKnownHosts(authorized), new WindowsCredentialStore(), connectionBudget));
     await using var host = new McpServerHost(input, output, tools);
     await host.RunAsync();
     await host.CloseAsync();
