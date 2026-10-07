@@ -12,6 +12,9 @@ public sealed partial class TunnelsPage : Page
     private readonly DispatcherQueueTimer _timer;
     private readonly CancellationTokenSource _stop = new();
     private readonly HashSet<Task> _actions=[];
+    private readonly Dictionary<TunnelRowViewModel,Task> _rowStops=[];
+    private readonly Dictionary<Guid,Task> _profileClosures=[];
+    private Exception? _profileCleanupFailure;
     private bool _closing,_acting; private Task? _shutdown;
     public TunnelsViewModel ViewModel {get;}
     public TunnelsPage(ITunnelFactory factory,IKnownHostRepository knownHosts,ITunnelDefinitionRepository definitions,IConnectionProfileRepository profiles,NativeDialogService dialogs)
@@ -48,12 +51,43 @@ public sealed partial class TunnelsPage : Page
         var saved=await _profiles.ReadAsync(_stop.Token); var profile=saved.Profiles.FirstOrDefault(value=>value.Id==row.Definition.ProfileId)??throw new ArgumentException("引用的 SSH 配置不存在。");
         await ViewModel.StartAsync(row,profile);
     });
-    private async void Stop_Click(object sender,RoutedEventArgs args) { if(Definitions.SelectedItem is TunnelRowViewModel row)await TrackAsync(()=>ViewModel.StopAsync(row)); }
+    private async void Stop_Click(object sender,RoutedEventArgs args) { if(Definitions.SelectedItem is TunnelRowViewModel row)await StopRowAsync(row); }
+    private Task StopRowAsync(TunnelRowViewModel row)
+    {
+        if(_rowStops.TryGetValue(row,out var existing))return existing;
+        if(_closing||_actions.Count>=16)return Task.CompletedTask;
+        var completion=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _rowStops.Add(row,completion.Task);_actions.Add(completion.Task);_=StopCoreAsync();return completion.Task;
+        async Task StopCoreAsync() {
+            try {await ViewModel.StopAsync(row);}
+            catch(Exception) {Feedback.Text="隧道关闭失败，请检查连接状态。";}
+            finally {_rowStops.Remove(row);_actions.Remove(completion.Task);completion.SetResult();}
+        }
+    }
     private async void Delete_Click(object sender,RoutedEventArgs args)=>await RunAsync(async()=>{
         if(Definitions.SelectedItem is not TunnelRowViewModel row)return;
         if(await _dialogs.ConfirmAsync(XamlRoot,"删除隧道定义",$"停止并删除“{row.Name}”？","删除",_stop.Token))await ViewModel.DeleteAsync(row,_stop.Token);
     });
-    public Task CloseProfileAsync(Guid profileId)=>TrackAsync(()=>ViewModel.DeleteProfileAsync(profileId));
+    public Task CloseProfileAsync(Guid profileId)
+    {
+        if(_profileClosures.TryGetValue(profileId,out var existing))return existing;
+        if(_closing)return _shutdown??Task.CompletedTask;
+        // Before lazy metadata load, IDs are bounded by the profile repository's 5000 profile limit.
+        // After load the VM keeps only IDs referenced by at most 64 definitions; unrelated IDs finish immediately.
+        if(_profileClosures.Count>=5000) {
+            var error=new InvalidOperationException("待清理配置超过 5000 个，请等待当前清理完成后重试。");
+            Feedback.Text=error.Message;_profileCleanupFailure??=error;return Task.FromException(error);
+        }
+        var completion=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _profileClosures.Add(profileId,completion.Task);_=CloseProfileCoreAsync();return completion.Task;
+        async Task CloseProfileCoreAsync() {
+            try {await ViewModel.DeleteProfileAsync(profileId);completion.SetResult();}
+            catch(Exception error) {
+                _profileCleanupFailure??=error;Feedback.Text="配置对应的隧道清理失败，请重试。";completion.SetException(error);
+            }
+            finally {_profileClosures.Remove(profileId);}
+        }
+    }
     private async Task RunAsync(Func<Task> action)
     {
         if(_closing||_acting)return; _acting=true;
@@ -75,5 +109,15 @@ public sealed partial class TunnelsPage : Page
         if(_shutdown is not null)return _shutdown; _closing=true; IsEnabled=false; _timer.Stop(); _timer.Tick-=Tick; _stop.Cancel();
         _shutdown=CloseAsync();return _shutdown;
     }
-    private async Task CloseAsync() { try { await Task.WhenAll(_actions.Append(ViewModel.DisposeAsync().AsTask()).ToArray()); } finally {_stop.Dispose();} }
+    private async Task CloseAsync()
+    {
+        try {
+            try {await Task.WhenAll(_profileClosures.Values.ToArray());}
+            catch(Exception error) {_profileCleanupFailure??=error;}
+            // Even a failed metadata read/cleanup must not skip independent session shutdown.
+            try {await Task.WhenAll(_actions.Append(ViewModel.DisposeAsync().AsTask()).ToArray());}
+            catch(Exception error) {if(_profileCleanupFailure is null)throw;throw new AggregateException(_profileCleanupFailure,error);}
+            if(_profileCleanupFailure is not null)throw new AggregateException("配置隧道清理曾失败；已尝试关闭全部会话。",_profileCleanupFailure);
+        } finally {_stop.Dispose();}
+    }
 }
