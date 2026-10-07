@@ -1,0 +1,621 @@
+diff --git a/src/Renci.SshNet/ForwardedPort.cs b/src/Renci.SshNet/ForwardedPort.cs
+index 00a0c8c..a243ef3 100644
+--- a/src/Renci.SshNet/ForwardedPort.cs
++++ b/src/Renci.SshNet/ForwardedPort.cs
+@@ -1,4 +1,8 @@
+-﻿using System;
++using System;
++using System.Collections.Generic;
++using System.Net.Sockets;
++using System.Threading;
++using System.Threading.Tasks;
+ 
+ using Renci.SshNet.Common;
+ 
+@@ -17,6 +21,95 @@ public abstract class ForwardedPort : IForwardedPort
+         /// </value>
+         internal ISession Session { get; set; }
+ 
++        private BoundedLifetime _boundedLifetime;
++        internal bool HasBoundedLifetime => _boundedLifetime != null;
++        /// <summary>Enables a single-use owner; call before Start. Requires exclusive ownership of the entire SSH client: stopping aborts that transport. Legacy behavior is unchanged by default.</summary>
++        public void ConfigureBoundedLifetime(int maximumConnections)
++        {
++            if (IsStarted || _boundedLifetime != null) throw new InvalidOperationException("Configure once before starting.");
++            if (maximumConnections < 1 || maximumConnections > 4) throw new ArgumentOutOfRangeException(nameof(maximumConnections));
++            _boundedLifetime = new BoundedLifetime(maximumConnections);
++        }
++        /// <summary>Completes only after stop, startup, accept, and every admitted worker finally have completed.</summary>
++        public Task ForwardingCompletion => _boundedLifetime?.Completion ?? Task.CompletedTask;
++        public int ActiveForwardingConnections => _boundedLifetime?.Connections ?? 0;
++        public int OwnedForwardingSockets => _boundedLifetime?.SocketCount ?? 0;
++        public int PendingForwardingOperations => _boundedLifetime?.Operations ?? 0;
++        /// <summary>Stops admission and disposes owned sockets outside send locks. Does not synchronously join workers.</summary>
++        public void StopBoundedForwarding() { if (_boundedLifetime == null) return; _boundedLifetime.Stop(); (Session as Session)?.AbortOwnedForwardingTransport(); }
++        internal void OwnBoundedSocket(Socket socket) => _boundedLifetime?.Own(socket);
++        internal void ReleaseBoundedSocket(Socket socket) => _boundedLifetime?.Release(socket);
++        internal static int BoundedBufferSize(uint peerMaximum)
++        {
++            if (peerMaximum == 0) throw new SshException("Zero channel packet size is invalid.");
++            return 32768;
++        }
++        protected void StartBoundedAccept(Socket listener, Action<Socket> process)
++            => _boundedLifetime.Accept(listener, process, RaiseExceptionEvent);
++        protected bool RunBoundedForwarding(Action process)
++            => _boundedLifetime.Run(process, RaiseExceptionEvent);
++
++        // This owner bounds work before dispatch, rather than relying on the mature channel count.
++        private sealed class BoundedLifetime
++        {
++            private readonly object _gate = new object();
++            private readonly HashSet<Socket> _sockets = new HashSet<Socket>();
++            private readonly TaskCompletionSource _completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
++            private readonly int _maximum;
++            private bool _started, _stopped;
++            private int _connections, _operations;
++            private Socket _listener;
++            public BoundedLifetime(int maximum) { _maximum = maximum; }
++            public Task Completion => _completion.Task;
++            public int Connections { get { lock (_gate) return _connections; } }
++            public int Operations { get { lock (_gate) return _operations; } }
++            public int SocketCount { get { lock (_gate) return _sockets.Count + (_listener == null ? 0 : 1); } }
++            public void BeginStart() { lock (_gate) { if (_started || _stopped) throw new InvalidOperationException("Bounded forwarding is single-use."); _started = true; _operations++; } }
++            public void EndOperation() { lock (_gate) { _operations--; Complete(); } }
++            private void Complete() { if (_stopped && _connections == 0 && _operations == 0) _completion.TrySetResult(); }
++            public void Own(Socket socket)
++            {
++                lock (_gate) { if (!_stopped) { _sockets.Add(socket); return; } }
++                socket.Dispose(); throw new ObjectDisposedException(nameof(ForwardedPort));
++            }
++            public void Release(Socket socket) { if (socket == null) return; socket.Dispose(); lock (_gate) _sockets.Remove(socket); }
++            public void Stop()
++            {
++                Socket[] sockets; Socket listener;
++                lock (_gate) { _stopped = true; sockets = new Socket[_sockets.Count]; _sockets.CopyTo(sockets); listener = _listener; Complete(); }
++                listener?.Dispose(); foreach (var socket in sockets) socket.Dispose();
++            }
++            public bool Run(Action process, Action<Exception> report)
++            {
++                lock (_gate) { if (_stopped || _connections == _maximum) return false; _connections++; }
++                _ = Task.Run(() => {
++                    try { process(); }
++                    catch (Exception error) { report(error); }
++                    finally { lock (_gate) { _connections--; Complete(); } }
++                });
++                return true;
++            }
++            public void Accept(Socket listener, Action<Socket> process, Action<Exception> report)
++            {
++                lock (_gate) { if (_stopped) { listener.Dispose(); return; } _listener = listener; _operations++; }
++                _ = AcceptAsync(listener, process, report);
++            }
++            private async Task AcceptAsync(Socket listener, Action<Socket> process, Action<Exception> report)
++            {
++                try {
++                    while (true) {
++                        var socket = await listener.AcceptAsync().ConfigureAwait(false);
++                        // Accepted socket is owned before any worker or channel can exist.
++                        try { Own(socket); }
++                        catch (ObjectDisposedException) { break; }
++                        if (!Run(() => { try { process(socket); } finally { Release(socket); } }, report)) Release(socket);
++                    }
++                }
++                catch (Exception error) { bool stopped; lock (_gate) stopped = _stopped; if (!stopped) { report(error); Stop(); } }
++                finally { listener.Dispose(); lock (_gate) { _listener = null; } EndOperation(); }
++            }
++        }
++
+         /// <summary>
+         /// Gets a value indicating whether port forwarding is started.
+         /// </summary>
+@@ -64,8 +157,10 @@ public virtual void Start()
+                 throw new SshConnectionException("Client not connected.");
+             }
+ 
+-            Session.ErrorOccured += Session_ErrorOccurred;
+-            StartPort();
++            _boundedLifetime?.BeginStart();
++            try { Session.ErrorOccured += Session_ErrorOccurred; StartPort(); }
++            catch { StopBoundedForwarding(); throw; }
++            finally { _boundedLifetime?.EndOperation(); }
+         }
+ 
+         /// <summary>
+@@ -73,6 +168,7 @@ public virtual void Start()
+         /// </summary>
+         public virtual void Stop()
+         {
++            StopBoundedForwarding();
+             if (IsStarted)
+             {
+                 StopPort(Session.ConnectionInfo.Timeout);
+@@ -116,6 +212,7 @@ protected virtual void Dispose(bool disposing)
+         {
+             if (disposing)
+             {
++                StopBoundedForwarding();
+                 var session = Session;
+                 if (session is not null)
+                 {
+diff --git a/src/Renci.SshNet/ForwardedPortLocal.cs b/src/Renci.SshNet/ForwardedPortLocal.cs
+index 9bf5c05..d6f26ec 100644
+--- a/src/Renci.SshNet/ForwardedPortLocal.cs
++++ b/src/Renci.SshNet/ForwardedPortLocal.cs
+@@ -133,6 +133,9 @@ protected override void StartPort()
+         protected override void StopPort(TimeSpan timeout)
+         {
+             timeout.EnsureValidTimeout();
++            if (HasBoundedLifetime) {
++                StopBoundedForwarding(); StopListener(); _status = ForwardedPortStatus.Stopped; return;
++            }
+ 
+             if (!ForwardedPortStatus.ToStopping(ref _status))
+             {
+@@ -205,7 +208,8 @@ private void InternalStart()
+             // consider port started when we're listening for inbound connections
+             _status = ForwardedPortStatus.Started;
+ 
+-            StartAccept(e: null);
++            if (HasBoundedLifetime) StartBoundedAccept(_listener, ProcessAccept);
++            else StartAccept(e: null);
+         }
+ 
+         private void StartAccept(SocketAsyncEventArgs e)
+@@ -286,7 +290,7 @@ private void ProcessAccept(Socket clientSocket)
+             // and at that time there may still be pending requests
+             var pendingChannelCountdown = _pendingChannelCountdown;
+ 
+-            pendingChannelCountdown.AddCount();
++            if (!HasBoundedLifetime) pendingChannelCountdown.AddCount();
+ 
+             try
+             {
+@@ -314,7 +318,7 @@ private void ProcessAccept(Socket clientSocket)
+                 // the CountdownEvent will be disposed
+                 try
+                 {
+-                    _ = pendingChannelCountdown.Signal();
++                    if (!HasBoundedLifetime) _ = pendingChannelCountdown.Signal();
+                 }
+                 catch (ObjectDisposedException)
+                 {
+diff --git a/src/Renci.SshNet/ForwardedPortRemote.cs b/src/Renci.SshNet/ForwardedPortRemote.cs
+index 3d9393d..7c80ddc 100644
+--- a/src/Renci.SshNet/ForwardedPortRemote.cs
++++ b/src/Renci.SshNet/ForwardedPortRemote.cs
+@@ -184,6 +184,13 @@ protected override void StartPort()
+         protected override void StopPort(TimeSpan timeout)
+         {
+             timeout.EnsureValidTimeout();
++            if (HasBoundedLifetime) {
++                StopBoundedForwarding();
++                Session.RequestSuccessReceived -= Session_RequestSuccess;
++                Session.RequestFailureReceived -= Session_RequestFailure;
++                Session.ChannelOpenReceived -= Session_ChannelOpening;
++                _status = ForwardedPortStatus.Stopped; return;
++            }
+ 
+             if (!ForwardedPortStatus.ToStopping(ref _status))
+             {
+@@ -246,6 +253,16 @@ private void Session_ChannelOpening(object sender, MessageEventArgs<ChannelOpenM
+                         return;
+                     }
+ 
++                    if (HasBoundedLifetime) {
++                        if (channelOpenMessage.MaximumPacketSize == 0 || !RunBoundedForwarding(() => {
++                            RaiseRequestReceived(info.OriginatorAddress, info.OriginatorPort);
++                            using (var channel = Session.CreateChannelForwardedTcpip(channelOpenMessage.LocalChannelNumber, channelOpenMessage.InitialWindowSize, channelOpenMessage.MaximumPacketSize)) {
++                                channel.Exception += Channel_Exception;
++                                channel.Bind(new IPEndPoint(HostAddress, (int)Port), this);
++                            }
++                        })) Session.SendMessage(new ChannelOpenFailureMessage(channelOpenMessage.LocalChannelNumber, string.Empty, ChannelOpenFailureMessage.AdministrativelyProhibited));
++                        return;
++                    }
+                     ThreadAbstraction.ExecuteThread(() =>
+                         {
+                             // capture the countdown event that we're adding a count to, as we need to make sure that we'll be signaling
+diff --git a/src/Renci.SshNet/ForwardedPortDynamic.cs b/src/Renci.SshNet/ForwardedPortDynamic.cs
+index 7210b40..abd1171 100644
+--- a/src/Renci.SshNet/ForwardedPortDynamic.cs
++++ b/src/Renci.SshNet/ForwardedPortDynamic.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Buffers.Binary;
+ using System.Globalization;
+ using System.Linq;
+@@ -6,6 +6,7 @@
+ using System.Net.Sockets;
+ using System.Text;
+ using System.Threading;
++using System.Threading.Tasks;
+ 
+ using Microsoft.Extensions.Logging;
+ 
+@@ -105,6 +106,9 @@ protected override void StartPort()
+         protected override void StopPort(TimeSpan timeout)
+         {
+             timeout.EnsureValidTimeout();
++            if (HasBoundedLifetime) {
++                StopBoundedForwarding(); StopListener(); _status = ForwardedPortStatus.Stopped; return;
++            }
+ 
+             if (!ForwardedPortStatus.ToStopping(ref _status))
+             {
+@@ -175,7 +179,8 @@ private void InternalStart()
+             // consider port started when we're listening for inbound connections
+             _status = ForwardedPortStatus.Started;
+ 
+-            StartAccept(e: null);
++            if (HasBoundedLifetime) StartBoundedAccept(_listener, ProcessAccept);
++            else StartAccept(e: null);
+         }
+ 
+         private void StartAccept(SocketAsyncEventArgs e)
+@@ -256,7 +261,7 @@ private void ProcessAccept(Socket clientSocket)
+             // and at that time there may still be pending requests
+             var pendingChannelCountdown = _pendingChannelCountdown;
+ 
+-            pendingChannelCountdown.AddCount();
++            if (!HasBoundedLifetime) pendingChannelCountdown.AddCount();
+ 
+             try
+             {
+@@ -286,7 +291,7 @@ private void ProcessAccept(Socket clientSocket)
+                 // the CountdownEvent will be disposed
+                 try
+                 {
+-                    _ = pendingChannelCountdown.Signal();
++                    if (!HasBoundedLifetime) _ = pendingChannelCountdown.Signal();
+                 }
+                 catch (ObjectDisposedException)
+                 {
+@@ -317,6 +322,7 @@ private void InitializePendingChannelCountdown()
+         private bool HandleSocks(IChannelDirectTcpip channel, Socket clientSocket, TimeSpan timeout)
+         {
+             Closing += closeClientSocket;
++            using var handshakeDeadline = HasBoundedLifetime ? new Timer(_ => clientSocket.Dispose(), null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan) : null;
+ 
+             try
+             {
+@@ -327,9 +333,9 @@ private bool HandleSocks(IChannelDirectTcpip channel, Socket clientSocket, TimeS
+                         // SOCKS client closed connection
+                         return false;
+                     case 4:
+-                        return HandleSocks4(clientSocket, channel, timeout);
++                        return HandleSocks4(clientSocket, channel, timeout, handshakeDeadline);
+                     case 5:
+-                        return HandleSocks5(clientSocket, channel, timeout);
++                        return HandleSocks5(clientSocket, channel, timeout, handshakeDeadline);
+                     default:
+                         throw new NotSupportedException(string.Format(CultureInfo.InvariantCulture, "SOCKS version {0} is not supported.", version));
+                 }
+@@ -358,6 +364,7 @@ private bool HandleSocks(IChannelDirectTcpip channel, Socket clientSocket, TimeS
+                 // interrupt of blocking receive is now handled by channel (SOCKS4 and SOCKS5)
+                 // or no longer necessary
+                 Closing -= closeClientSocket;
++                handshakeDeadline?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+             }
+ 
+ #pragma warning disable SA1300 // Element should begin with upper-case letter
+@@ -464,7 +471,7 @@ private void Channel_Exception(object sender, ExceptionEventArgs e)
+             RaiseExceptionEvent(e.Exception);
+         }
+ 
+-        private bool HandleSocks4(Socket socket, IChannelDirectTcpip channel, TimeSpan timeout)
++        private bool HandleSocks4(Socket socket, IChannelDirectTcpip channel, TimeSpan timeout, Timer handshakeDeadline)
+         {
+             var commandCode = SocketAbstraction.ReadByte(socket, timeout);
+             if (commandCode == -1)
+@@ -489,6 +496,7 @@ private bool HandleSocks4(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+                 return false;
+             }
+ 
++            if (HasBoundedLifetime && ipBuffer[0] == 0 && ipBuffer[1] == 0 && ipBuffer[2] == 0 && ipBuffer[3] != 0) return false;
+             var ipAddress = new IPAddress(ipBuffer);
+ 
+             var username = ReadString(socket, timeout);
+@@ -502,6 +510,8 @@ private bool HandleSocks4(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+ 
+             RaiseRequestReceived(host, port);
+ 
++            if (HasBoundedLifetime && (commandCode != 1 || port == 0)) return false;
++            handshakeDeadline?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+             channel.Open(host, port, this, socket);
+ 
+             SocketAbstraction.SendByte(socket, 0x00);
+@@ -519,10 +529,10 @@ private bool HandleSocks4(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+             return false;
+         }
+ 
+-        private bool HandleSocks5(Socket socket, IChannelDirectTcpip channel, TimeSpan timeout)
++        private bool HandleSocks5(Socket socket, IChannelDirectTcpip channel, TimeSpan timeout, Timer handshakeDeadline)
+         {
+             var authenticationMethodsCount = SocketAbstraction.ReadByte(socket, timeout);
+-            if (authenticationMethodsCount == -1)
++            if (authenticationMethodsCount == -1 || (HasBoundedLifetime && authenticationMethodsCount == 0))
+             {
+                 // SOCKS client closed connection
+                 return false;
+@@ -545,6 +555,7 @@ private bool HandleSocks5(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+             {
+                 // the SOCKS client requires authentication, which we currently do not support
+                 SocketAbstraction.Send(socket, new byte[] { 0x05, 0xFF }, 0, 2);
++                if (HasBoundedLifetime) return false;
+ 
+                 // we continue business as usual but expect the client to close the connection
+                 // so one of the subsequent reads should return -1 signaling that the client
+@@ -607,6 +618,8 @@ private bool HandleSocks5(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+ 
+             RaiseRequestReceived(host, port);
+ 
++            if (HasBoundedLifetime && (commandCode != 1 || port == 0)) return false;
++            handshakeDeadline?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+             channel.Open(host, port, this, socket);
+ 
+             var socksReply = CreateSocks5Reply(channel.IsOpen);
+@@ -616,7 +629,7 @@ private bool HandleSocks5(Socket socket, IChannelDirectTcpip channel, TimeSpan t
+             return true;
+         }
+ 
+-        private static string GetSocks5Host(int addressType, Socket socket, TimeSpan timeout)
++        private string GetSocks5Host(int addressType, Socket socket, TimeSpan timeout)
+         {
+             switch (addressType)
+             {
+@@ -636,7 +649,7 @@ private static string GetSocks5Host(int addressType, Socket socket, TimeSpan tim
+                 case 0x03: // Domain name
+                     {
+                         var length = SocketAbstraction.ReadByte(socket, timeout);
+-                        if (length == -1)
++                        if (length == -1 || (HasBoundedLifetime && length == 0))
+                         {
+                             // SOCKS client closed connection
+                             return null;
+@@ -719,7 +732,7 @@ private static byte[] CreateSocks5Reply(bool channelOpen)
+         /// <returns>
+         /// The <see cref="string"/> read, or <see langword="null"/> when the socket was closed.
+         /// </returns>
+-        private static string ReadString(Socket socket, TimeSpan timeout)
++        private string ReadString(Socket socket, TimeSpan timeout)
+         {
+             var text = new StringBuilder();
+             var buffer = new byte[1];
+@@ -739,6 +752,7 @@ private static string ReadString(Socket socket, TimeSpan timeout)
+                     break;
+                 }
+ 
++                if (HasBoundedLifetime && text.Length == 256) throw new ProxyException("SOCKS4 user identifier exceeds 256 bytes.");
+                 _ = text.Append((char)byteRead);
+             }
+ 
+diff --git a/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs b/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
+index 2e2c752..6eca9a5 100644
+--- a/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
++++ b/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Net;
+ using System.Net.Sockets;
+ using System.Threading;
+@@ -22,6 +22,7 @@ internal sealed class ChannelDirectTcpip : ClientChannel, IChannelDirectTcpip
+         private EventWaitHandle _channelData = new AutoResetEvent(initialState: false);
+         private IForwardedPort _forwardedPort;
+         private Socket _socket;
++        private ForwardedPort _boundedPort;
+ 
+         /// <summary>
+         /// Initializes a new instance of the <see cref="ChannelDirectTcpip"/> class.
+@@ -61,6 +62,7 @@ public void Open(string remoteHost, uint port, IForwardedPort forwardedPort, Soc
+ 
+             _socket = socket;
+             _forwardedPort = forwardedPort;
++            _boundedPort = forwardedPort is ForwardedPort owner && owner.HasBoundedLifetime ? owner : null;
+             _forwardedPort.Closing += ForwardedPort_Closing;
+ 
+             var ep = (IPEndPoint)socket.RemoteEndPoint;
+@@ -80,6 +82,7 @@ public void Open(string remoteHost, uint port, IForwardedPort forwardedPort, Soc
+         /// </summary>
+         private void ForwardedPort_Closing(object sender, EventArgs eventArgs)
+         {
++            if (_boundedPort != null) { CloseSocket(); return; }
+             // signal to the client that we will not send anything anymore; this should also interrupt the
+             // blocking receive in Bind if the client sends FIN/ACK in time
+             ShutdownSocket(SocketShutdown.Send);
+@@ -100,9 +103,10 @@ public void Bind()
+                 return;
+             }
+ 
+-            var buffer = new byte[RemotePacketSize];
++            var buffer = new byte[_boundedPort != null ? ForwardedPort.BoundedBufferSize(RemotePacketSize) : RemotePacketSize];
+ 
+             SocketAbstraction.ReadContinuous(_socket, buffer, 0, buffer.Length, SendData);
++            if (_boundedPort != null && IsOpen) { SendEof(); WaitOnHandle(_channelData); }
+ 
+             // even though the client has disconnected, we still want to properly close the
+             // channel
+@@ -117,6 +121,7 @@ public void Bind()
+         /// </summary>
+         private void CloseSocket()
+         {
++            if (_boundedPort != null) { _boundedPort.ReleaseBoundedSocket(Interlocked.Exchange(ref _socket, null)); return; }
+             if (_socket is null)
+             {
+                 return;
+@@ -142,6 +147,7 @@ private void CloseSocket()
+         /// <param name="how">One of the <see cref="SocketShutdown"/> values that specifies the operation that will no longer be allowed.</param>
+         private void ShutdownSocket(SocketShutdown how)
+         {
++            if (_boundedPort != null) { var socket = _socket; try { socket?.Shutdown(how); } catch (SocketException) { } catch (ObjectDisposedException) { } return; }
+             if (_socket is null)
+             {
+                 return;
+@@ -170,6 +176,7 @@ private void ShutdownSocket(SocketShutdown how)
+         /// </summary>
+         protected override void Close()
+         {
++            if (_boundedPort != null) CloseSocket();
+             var forwardedPort = _forwardedPort;
+             if (forwardedPort != null)
+             {
+@@ -198,6 +205,7 @@ protected override void OnData(ArraySegment<byte> data)
+         {
+             base.OnData(data);
+ 
++            if (_boundedPort != null) { var socket = _socket; if (socket != null) SocketAbstraction.Send(socket, data.Array, data.Offset, data.Count); return; }
+             if (_socket != null)
+             {
+                 lock (_socketLock)
+@@ -218,6 +226,7 @@ protected override void OnData(ArraySegment<byte> data)
+         /// <param name="maximumPacketSize">Maximum size of the packet.</param>
+         protected override void OnOpenConfirmation(uint remoteChannelNumber, uint initialWindowSize, uint maximumPacketSize)
+         {
++            if (_boundedPort != null) ForwardedPort.BoundedBufferSize(maximumPacketSize);
+             base.OnOpenConfirmation(remoteChannelNumber, initialWindowSize, maximumPacketSize);
+ 
+             _ = _channelOpen.Set();
+@@ -235,6 +244,7 @@ protected override void OnOpenFailure(uint reasonCode, string description, strin
+         /// </summary>
+         protected override void OnEof()
+         {
++            if (_boundedPort != null) _channelData.Set();
+             base.OnEof();
+ 
+             // the channel will send no more data, and hence it does not make sense to receive
+@@ -249,6 +259,8 @@ protected override void OnEof()
+         /// Called whenever an unhandled <see cref="Exception"/> occurs in <see cref="Session"/> causing
+         /// the message loop to be interrupted, or when an exception occurred processing a channel message.
+         /// </summary>
++        protected override void OnClose() { if (_boundedPort != null) _channelData.Set(); base.OnClose(); }
++
+         protected override void OnErrorOccurred(Exception exp)
+         {
+             base.OnErrorOccurred(exp);
+diff --git a/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs b/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
+index 1f536ff..e8f4d89 100644
+--- a/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
++++ b/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Net;
+ using System.Net.Sockets;
+ #if NET9_0_OR_GREATER
+@@ -21,6 +21,8 @@ internal sealed class ChannelForwardedTcpip : ServerChannel, IChannelForwardedTc
+         private readonly Lock _socketShutdownAndCloseLock = new Lock();
+         private readonly ILogger _logger;
+         private Socket _socket;
++        private ForwardedPort _boundedPort;
++        private EventWaitHandle _forwardingEof;
+         private IForwardedPort _forwardedPort;
+ 
+         /// <summary>
+@@ -75,12 +77,21 @@ public void Bind(IPEndPoint remoteEndpoint, IForwardedPort forwardedPort)
+             }
+ 
+             _forwardedPort = forwardedPort;
++            _boundedPort = forwardedPort is ForwardedPort port && port.HasBoundedLifetime ? port : null;
+             _forwardedPort.Closing += ForwardedPort_Closing;
++            if (_boundedPort != null) _forwardingEof = new ManualResetEvent(false);
+ 
+             // Try to connect to the socket
+             try
+             {
+-                _socket = SocketAbstraction.Connect(remoteEndpoint, ConnectionInfo.Timeout);
++                if (_boundedPort != null) {
++                    ForwardedPort.BoundedBufferSize(RemotePacketSize);
++                    var socket = new Socket(remoteEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
++                    _socket = socket;
++                    _boundedPort.OwnBoundedSocket(socket);
++                    using var deadline = new CancellationTokenSource(ConnectionInfo.Timeout);
++                    socket.ConnectAsync(remoteEndpoint, deadline.Token).AsTask().GetAwaiter().GetResult();
++                } else _socket = SocketAbstraction.Connect(remoteEndpoint, ConnectionInfo.Timeout);
+ 
+                 // Send channel open confirmation message
+                 SendMessage(new ChannelOpenConfirmationMessage(RemoteChannelNumber, LocalWindowSize, LocalPacketSize, LocalChannelNumber));
+@@ -93,11 +104,23 @@ public void Bind(IPEndPoint remoteEndpoint, IForwardedPort forwardedPort)
+                 throw;
+             }
+ 
+-            var buffer = new byte[RemotePacketSize];
++            var buffer = new byte[_boundedPort != null ? ForwardedPort.BoundedBufferSize(RemotePacketSize) : RemotePacketSize];
+ 
+             SocketAbstraction.ReadContinuous(_socket, buffer, 0, buffer.Length, SendData);
++            if (_boundedPort != null && IsOpen) { SendEof(); WaitOnHandle(_forwardingEof); }
+         }
+ 
++        protected override void OnEof()
++        {
++            if (_boundedPort != null) { _forwardingEof.Set(); ShutdownSocket(SocketShutdown.Send); }
++            base.OnEof();
++        }
++        protected override void OnClose() { _forwardingEof?.Set(); base.OnClose(); }
++        protected override void Dispose(bool disposing)
++        {
++            try { base.Dispose(disposing); }
++            finally { if (disposing) { _forwardingEof?.Dispose(); _forwardingEof = null; } }
++        }
+         protected override void OnErrorOccurred(Exception exp)
+         {
+             base.OnErrorOccurred(exp);
+@@ -114,6 +137,7 @@ protected override void OnErrorOccurred(Exception exp)
+         /// </summary>
+         private void ForwardedPort_Closing(object sender, EventArgs eventArgs)
+         {
++            if (_boundedPort != null) { CloseSocket(); return; }
+             // signal to the server that we will not send anything anymore; this will also interrupt the
+             // blocking receive in Bind if the server sends FIN/ACK in time
+             //
+@@ -127,6 +151,7 @@ private void ForwardedPort_Closing(object sender, EventArgs eventArgs)
+         /// <param name="how">One of the <see cref="SocketShutdown"/> values that specifies the operation that will no longer be allowed.</param>
+         private void ShutdownSocket(SocketShutdown how)
+         {
++            if (_boundedPort != null) { var socket = _socket; try { socket?.Shutdown(how); } catch (SocketException) { } catch (ObjectDisposedException) { } return; }
+             if (_socket is null)
+             {
+                 return;
+@@ -156,6 +181,7 @@ private void ShutdownSocket(SocketShutdown how)
+         /// </summary>
+         private void CloseSocket()
+         {
++            if (_boundedPort != null) { _boundedPort.ReleaseBoundedSocket(Interlocked.Exchange(ref _socket, null)); return; }
+             if (_socket is null)
+             {
+                 return;
+@@ -177,6 +203,7 @@ private void CloseSocket()
+         /// </summary>
+         protected override void Close()
+         {
++            if (_boundedPort != null) CloseSocket();
+             var forwardedPort = _forwardedPort;
+             if (forwardedPort != null)
+             {
+diff --git a/src/Renci.SshNet/Session.cs b/src/Renci.SshNet/Session.cs
+index 5468b53..d43c383 100644
+--- a/src/Renci.SshNet/Session.cs
++++ b/src/Renci.SshNet/Session.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Buffers.Binary;
+ using System.Diagnostics;
+ using System.Globalization;
+@@ -1949,6 +1949,17 @@ private static int TrySocketRead(Socket socket, byte[] buffer, int offset, int l
+         /// <summary>
+         /// Shuts down and disposes the socket.
+         /// </summary>
++        // Only the opt-in, whole-client forwarding owner may call this. A blocked SendPacket
++        // holds _socketDisposeLock; dispose the stable socket first, without taking that lock.
++        // The external owner subsequently invokes mature Disconnect and joins every worker.
++        internal void AbortOwnedForwardingTransport()
++        {
++            _isDisconnecting = true;
++            _exception ??= new SshConnectionException("Exclusive forwarding session stopped.", DisconnectReason.ByApplication);
++            _exceptionWaitHandle.Set();
++            var socket = Volatile.Read(ref _socket);
++            socket?.Dispose();
++        }
+         private void SocketDisconnectAndDispose()
+         {
+             lock (_socketDisposeLock)
