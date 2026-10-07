@@ -20,6 +20,7 @@ public sealed partial class TerminalSessionsPage : Page
     private readonly Dictionary<TerminalTabViewModel, LocalShellLaunchRequest> _localRequests = [];
     private readonly Dictionary<TerminalTabViewModel, DockerTerminalRequest> _dockerRequests = [];
     private readonly HashSet<Task> _actions = [];
+    private readonly HashSet<object> _openPopups = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly List<Exception> _shutdownFailures = [];
     private bool _visible, _dialogVisible, _closing, _refreshingWsl;
@@ -89,8 +90,15 @@ public sealed partial class TerminalSessionsPage : Page
         if (!started) await tab.CloseAsync();
         return started;
     }
-    public void SetWorkspaceVisible(bool visible) { _visible = visible; UpdatePresentation(); }
+    public void SetWorkspaceVisible(bool visible)
+    {
+        _visible = visible;
+        if (!visible) { TerminalCommands.IsOpen = false; Distributions.IsDropDownOpen = false; _openPopups.Clear(); }
+        UpdatePresentation();
+    }
     public void SetDialogVisible(bool visible) { _dialogVisible = visible; UpdatePresentation(); }
+    private void Popup_Opened(object sender, object args) { _openPopups.Add(sender); UpdatePresentation(); }
+    private void Popup_Closed(object sender, object args) { _openPopups.Remove(sender); UpdatePresentation(); }
     private void UpdatePresentation()
     {
         if (EmptyMessage is null) return;
@@ -99,9 +107,9 @@ public sealed partial class TerminalSessionsPage : Page
         {
             var selected = ReferenceEquals(ViewModel.SelectedTab, pair.Key);
             pair.Value.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
-            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && selected && !_closing && !pair.Key.IsClosing);
+            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && _openPopups.Count == 0 && selected && !_closing && !pair.Key.IsClosing);
         }
-        if (_visible && !_dialogVisible && !_closing) SelectedControl?.Focus(FocusState.Programmatic);
+        if (_visible && !_dialogVisible && _openPopups.Count == 0 && !_closing) SelectedControl?.Focus(FocusState.Programmatic);
     }
     public Task CloseProfileAsync(Guid profileId) => RunActionAsync(() => CloseProfileOwnersAsync(profileId), closingOwners: true);
     private async Task CloseProfileOwnersAsync(Guid profileId)
@@ -182,7 +190,8 @@ public sealed partial class TerminalSessionsPage : Page
     public Task BeginShutdownAsync()
     {
         if (_shutdown is not null) return _shutdown;
-        _closing = true; IsEnabled = false; _stop.Cancel(); UpdatePresentation();
+        _closing = true; IsEnabled = false; _stop.Cancel();
+        TerminalCommands.IsOpen = false; Distributions.IsDropDownOpen = false; _openPopups.Clear(); UpdatePresentation();
         return _shutdown = ShutdownCoreAsync();
     }
     private async Task ShutdownCoreAsync()

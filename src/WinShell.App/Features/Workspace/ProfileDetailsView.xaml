@@ -4,8 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Padding="24" Spacing="12">
-            <TextBlock Text="配置详情" Style="{ThemeResource TitleTextBlockStyle}"/>
-            <TextBlock Text="已保存配置的只读快照。当前阶段尚不提供网络连接或终端。修改配置后请关闭并重新打开详情。" TextWrapping="Wrap"/>
+            <TextBlock Text="配置详情" Style="{ThemeResource SubtitleTextBlockStyle}"/>
+            <TextBlock Text="只读快照；修改配置后重新打开可查看最新内容。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <TextBox Header="连接名称" AutomationProperties.Name="连接名称，只读" Text="{Binding Profile.DisplayName}" IsReadOnly="True"/>
             <TextBox Header="协议" AutomationProperties.Name="协议，只读" Text="{Binding Profile.Protocol}" IsReadOnly="True"/>
             <TextBox Header="主机" AutomationProperties.Name="主机，只读" Text="{Binding Profile.Host}" IsReadOnly="True"/>
