@@ -9,3 +9,11 @@ public interface IShellSession : IAsyncDisposable
     ValueTask ResizeAsync(ushort columns, ushort rows, CancellationToken cancellationToken);
     ValueTask CloseAsync(CancellationToken cancellationToken);
 }
+
+// Optional completion result, implemented by the local process and remote SSH shell.
+// Output EOF and process/channel exit are separate; inspect ExitCode after ProcessCompletion.
+public interface IShellSessionExit
+{
+    Task ProcessCompletion { get; }
+    int? ExitCode { get; }
+}
