@@ -23,16 +23,37 @@
     <ProjectReference Include="..\WinShell.Core\WinShell.Core.csproj" />
     <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
     <ProjectReference Include="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" ReferenceOutputAssembly="false" AdditionalProperties="Platform=x64" />
+    <ProjectReference Include="../WinShell.Mcp/WinShell.Mcp.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" AdditionalProperties="Platform=AnyCPU" />
   </ItemGroup>
   <Target Name="CopyNativeRenderer" AfterTargets="Build">
     <ItemGroup><NativeRendererFiles Include="../WinShell.Terminal.NativeHost/bin/x64/$(Configuration)/$(TargetFramework)/win-x64/*" /></ItemGroup>
     <Error Condition="'@(NativeRendererFiles)' == ''" Text="Native renderer output must be built before packaging the App." />
     <Copy SourceFiles="@(NativeRendererFiles)" DestinationFolder="$(OutDir)Terminal" SkipUnchangedFiles="false" />
   </Target>
+  <Target Name="CopyMcpServer" AfterTargets="Build">
+    <MSBuild Projects="../WinShell.Mcp/WinShell.Mcp.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=AnyCPU" RemoveProperties="RuntimeIdentifier;SelfContained">
+      <Output TaskParameter="TargetOutputs" ItemName="McpServerAssembly" />
+    </MSBuild>
+    <Error Condition="'@(McpServerAssembly)' == ''" Text="MCP server output must be built before packaging the App." />
+    <PropertyGroup><McpServerOutputDirectory>@(McpServerAssembly->'%(RootDir)%(Directory)')</McpServerOutputDirectory></PropertyGroup>
+    <Error Condition="!Exists('$(McpServerOutputDirectory)WinShell.Mcp.dll') or !Exists('$(McpServerOutputDirectory)WinShell.Mcp.runtimeconfig.json') or !Exists('$(McpServerOutputDirectory)WinShell.Mcp.deps.json') or !Exists('$(McpServerOutputDirectory)ThirdPartyNotices.txt') or !Exists('$(McpServerOutputDirectory)SSH-SOURCE-NOTICES.txt') or !Exists('$(McpServerOutputDirectory)SSH.NET.LICENSE')" Text="Complete MCP output and third-party licenses are required before packaging the App." />
+    <ItemGroup><McpServerFiles Include="$(McpServerOutputDirectory)**/*" /></ItemGroup>
+    <Error Condition="'@(McpServerFiles)' == ''" Text="MCP server deployment file list cannot be empty." />
+    <Copy SourceFiles="@(McpServerFiles)" DestinationFiles="@(McpServerFiles->'$(OutDir)Mcp/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="McpPlatformNotices.txt;WindowsSdkLicense.rtf" DestinationFolder="$(OutDir)Mcp" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="../WinShell.Terminal.NativeHost/artifacts/stable-native/NOTICE.html" DestinationFiles="$(OutDir)Mcp/ConPtyThirdPartyNotices.html" SkipUnchangedFiles="false" />
+  </Target>
   <Target Name="CopyPortablePowerShell" AfterTargets="Build">
     <PropertyGroup><PowerShellRoot>$(MSBuildThisFileDirectory)../../artifacts/powershell/7.6.6/</PowerShellRoot></PropertyGroup>
     <Error Condition="!Exists('$(PowerShellRoot)pwsh.exe') or !Exists('$(PowerShellRoot)LICENSE.txt') or !Exists('$(PowerShellRoot)ThirdPartyNotices.txt')" Text="Run src/WinShell.Infrastructure.Windows/Terminal/Prepare-PowerShell.ps1 before packaging the App." />
     <ItemGroup><PortablePowerShellFiles Include="$(PowerShellRoot)**/*" /></ItemGroup>
     <Copy SourceFiles="@(PortablePowerShellFiles)" DestinationFiles="@(PortablePowerShellFiles->'$(OutDir)PowerShell/7.6.6/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+  </Target>
+  <Target Name="IncludeMcpServerInPublish" BeforeTargets="ComputeFilesToPublish">
+    <Error Condition="!Exists('$(OutDir)Mcp/WinShell.Mcp.dll') or !Exists('$(OutDir)Mcp/WinShell.Mcp.runtimeconfig.json') or !Exists('$(OutDir)Mcp/WinShell.Mcp.deps.json') or !Exists('$(OutDir)Mcp/McpPlatformNotices.txt') or !Exists('$(OutDir)Mcp/WindowsSdkLicense.rtf')" Text="Build the complete MCP deployment before publishing the App." />
+    <ItemGroup>
+      <McpFilesToPublish Include="$(OutDir)Mcp/**/*" />
+      <ResolvedFileToPublish Include="@(McpFilesToPublish)" RelativePath="Mcp/%(McpFilesToPublish.RecursiveDir)%(McpFilesToPublish.Filename)%(McpFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
   </Target>
 </Project>
