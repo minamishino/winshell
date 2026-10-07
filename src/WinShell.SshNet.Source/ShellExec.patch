@@ -1,0 +1,63 @@
+diff --git a/src/Renci.SshNet/Shell.cs b/src/Renci.SshNet/Shell.cs
+index 423d5ec..29b5a78 100644
+--- a/src/Renci.SshNet/Shell.cs
++++ b/src/Renci.SshNet/Shell.cs
+@@ -28,13 +28,26 @@ public sealed class Shell : IDisposable
+         /// <param name="cancellationToken">Cancellation for this exclusive shell's lifetime.</param>
+         /// <returns>The owned startup task. A failed startup still requires awaiting close.</returns>
+         public System.Threading.Tasks.Task StartExclusiveSessionAsync(Action wakeOutput, CancellationToken cancellationToken = default)
++            => StartExclusiveSessionAsync(wakeOutput, null, cancellationToken);
++
++        /// <summary>Starts the same exclusive PTY with an optional mature exec request instead of a shell request.</summary>
++        /// <remarks>Null preserves ordinary shell behavior. A command requires a PTY, contains no NUL,
++        /// and is at most 8192 strict UTF-8 bytes. No command is written to stdin.</remarks>
++        public System.Threading.Tasks.Task StartExclusiveSessionAsync(Action wakeOutput, string startupCommand, CancellationToken cancellationToken = default)
+         {
+             if (wakeOutput == null) throw new ArgumentNullException(nameof(wakeOutput));
++            if (startupCommand != null)
++            {
++                if (_noTerminal) throw new InvalidOperationException("An exclusive exec command requires a PTY.");
++                if (startupCommand.Length == 0 || startupCommand.Length > 8192 || startupCommand.IndexOf('\0') >= 0
++                    || new System.Text.UTF8Encoding(false, true).GetByteCount(startupCommand) > 8192)
++                    throw new ArgumentException("Exec command must contain 1..8192 UTF-8 bytes without NUL.", nameof(startupCommand));
++            }
+             lock (_exclusiveGate)
+             {
+                 if (_disposed || _legacyUsed || IsStarted || _channel != null || _exclusive != null)
+                     throw new InvalidOperationException("Shell has already been used or disposed.");
+-                _exclusive = new ExclusiveSession(this, wakeOutput);
++                _exclusive = new ExclusiveSession(this, wakeOutput, startupCommand);
+                 return _exclusive.Start(cancellationToken);
+             }
+         }
+@@ -75,6 +88,7 @@ private sealed class ExclusiveSession
+         {
+             private readonly Shell _owner;
+             private readonly Action _wakeOutput;
++            private readonly string _startupCommand;
+             private readonly object _gate = new object();
+             private readonly CancellationTokenSource _stop = new CancellationTokenSource();
+             private readonly System.Threading.Tasks.TaskCompletionSource<bool> _inputCompleted =
+@@ -95,7 +109,7 @@ private sealed class ExclusiveSession
+             private bool _remoteEof;
+             private bool _remoteClosed;
+ 
+-            internal ExclusiveSession(Shell owner, Action wakeOutput) { _owner = owner; _wakeOutput = wakeOutput; }
++            internal ExclusiveSession(Shell owner, Action wakeOutput, string startupCommand) { _owner = owner; _wakeOutput = wakeOutput; _startupCommand = startupCommand; }
+             internal System.Threading.Tasks.Task InputCompletion => _inputCompleted.Task;
+             internal bool IsClosed { get { lock (_gate) return _close != null && _close.IsCompleted; } }
+             internal int? ExitStatus { get { lock (_gate) return _exitStatus; } }
+@@ -135,7 +149,12 @@ private void StartCore()
+                     if (!_owner._noTerminal && !_channel.SendPseudoTerminalRequest(_owner._terminalName,
+                         _owner._columns, _owner._rows, _owner._width, _owner._height, _owner._terminalModes))
+                         throw new SshException("The pseudo-terminal request was not accepted by the server.");
+-                    if (!_channel.SendShellRequest()) throw new SshException("The shell request was not accepted by the server.");
++                    _stop.Token.ThrowIfCancellationRequested();
++                    if (_startupCommand == null)
++                    {
++                        if (!_channel.SendShellRequest()) throw new SshException("The shell request was not accepted by the server.");
++                    }
++                    else if (!_channel.SendExecRequest(_startupCommand)) throw new SshException("The exec request was not accepted by the server.");
+                     lock (_gate)
+                     {
+                         _stop.Token.ThrowIfCancellationRequested();
