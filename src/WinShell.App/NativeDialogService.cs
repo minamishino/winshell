@@ -23,9 +23,17 @@ public sealed class NativeDialogService : IDisposable
                 Content = new ScrollViewer { Content = new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }, MaxHeight = 400 },
                 PrimaryButtonText = accept, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close
             };
-            using var registration = cancellationToken.Register(() => dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide()));
-            var result = await dialog.ShowAsync();
-            return !cancellationToken.IsCancellationRequested && result == ContentDialogResult.Primary;
+            var themeRoot = (FrameworkElement)root.Content;
+            void ThemeChanged(FrameworkElement sender, object args) => dialog.RequestedTheme = sender.ActualTheme;
+            dialog.RequestedTheme = themeRoot.ActualTheme;
+            themeRoot.ActualThemeChanged += ThemeChanged;
+            try
+            {
+                using var registration = cancellationToken.Register(() => dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide()));
+                var result = await dialog.ShowAsync();
+                return !cancellationToken.IsCancellationRequested && result == ContentDialogResult.Primary;
+            }
+            finally { themeRoot.ActualThemeChanged -= ThemeChanged; }
         }
         finally { try { PresentationChanged?.Invoke(false); } finally { _gate.Release(); } }
     }
