@@ -21,30 +21,32 @@ public sealed partial class FilesPage : Page
     private Task _action = Task.CompletedTask;
     private Task? _shutdown;
     public FilesViewModel ViewModel { get; }
-    public FilesPage(ISftpSessionFactory factory, IKnownHostRepository knownHosts, IConnectionProfileRepository profiles, NativeDialogService dialogs)
+    public FilesPage(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts, IConnectionProfileRepository profiles, NativeDialogService dialogs)
     {
         _profiles = profiles; _dialogs = dialogs;
-        ViewModel = new(factory, knownHosts, ConfirmAsync);
+        ViewModel = new(factory, knownHosts, ConfirmAsync, ConfirmPlaintextAsync);
         InitializeComponent(); DataContext = ViewModel;
         _timer = DispatcherQueue.CreateTimer(); _timer.Interval = TimeSpan.FromMilliseconds(100); _timer.Tick += Tick;
         _timer.Start();
     }
     public void SetOwnerWindow(Window window) => _windowId = window.AppWindow.Id;
     private void Tick(DispatcherQueueTimer sender, object args) => ViewModel.PublishProgress();
-    private Task<bool> ConfirmAsync(SftpConnectResult.UnknownHostKey challenge, CancellationToken token) =>
+    private Task<bool> ConfirmAsync(RemoteFileConnectResult.UnknownHostKey challenge, CancellationToken token) =>
         _dialogs.ConfirmAsync(XamlRoot, "确认 SFTP 主机公钥", $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证。请通过可信渠道核实指纹，再选择信任并连接。", "信任并连接", token);
+    private Task<bool> ConfirmPlaintextAsync(ConnectionProfile profile, CancellationToken token) =>
+        _dialogs.ConfirmAsync(XamlRoot, "确认 FTP 明文传输", $"主机：{profile.Host}:{profile.Port}\n用户名：{profile.UserName}\n\nFTP 会以明文传输密码、目录和文件。只有确认此风险后才会读取凭据并连接。", "接受明文并连接", token);
     public Task LoadProfilesAsync() => RunAsync(async () =>
     {
         if (!ViewModel.CanConnect) return;
         var saved = await _profiles.ReadAsync(_stop.Token);
         _stop.Token.ThrowIfCancellationRequested();
-        Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol == ConnectionProtocol.Ssh).ToArray();
+        Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol is ConnectionProtocol.Ssh or ConnectionProtocol.Ftp or ConnectionProtocol.Ftps).ToArray();
         Profiles.SelectedIndex = Profiles.Items.Count == 0 ? -1 : 0;
-        Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH 配置。" : "";
+        Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH、FTP 或 FTPS 配置。" : "";
     });
     private async void Reload_Click(object sender, RoutedEventArgs args) => await LoadProfilesAsync();
     private async void Connect_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
-    { if (Profiles.SelectedItem is ConnectionProfile profile) await ViewModel.ConnectAsync(profile); else Feedback.Text = "请选择已保存的 SSH 配置。"; });
+    { if (Profiles.SelectedItem is ConnectionProfile profile) await ViewModel.ConnectAsync(profile); else Feedback.Text = "请选择已保存的文件连接配置。"; });
     private async void Disconnect_Click(object sender, RoutedEventArgs args) => await RunAsync(ViewModel.DisconnectAsync);
     private async void Go_Click(object sender, RoutedEventArgs args) => await RunAsync(() => ViewModel.BrowseAsync(ViewModel.Path));
     private async void Up_Click(object sender, RoutedEventArgs args) => await RunAsync(ViewModel.UpAsync);
@@ -89,7 +91,7 @@ public sealed partial class FilesPage : Page
         {
             try { await action(); }
             catch (OperationCanceledException) { if (!_closing) Feedback.Text = "操作已取消。"; }
-            catch (Exception error) { Feedback.Text = error is ArgumentException or IOException or InvalidOperationException ? error.Message : "SFTP 页面操作失败。"; }
+            catch (Exception error) { Feedback.Text = error is ArgumentException or IOException or InvalidOperationException ? error.Message : "文件页面操作失败。"; }
             finally { _acting = false; completion.SetResult(); }
         }
     }
