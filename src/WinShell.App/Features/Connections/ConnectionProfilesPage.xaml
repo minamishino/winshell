@@ -41,12 +41,17 @@
                         <ComboBoxItem x:Name="FtpProtocolItem" Content="FTP"/>
                         <ComboBoxItem x:Name="FtpsProtocolItem" Content="FTPS"/>
                     </ComboBox>
+                    <ComboBox x:Name="FtpsModeBox" Header="FTPS 模式" AutomationProperties.Name="FTPS 模式" SelectionChanged="FtpsModeBox_SelectionChanged" HorizontalAlignment="Stretch" Visibility="Collapsed">
+                        <ComboBoxItem x:Name="ExplicitFtpsItem" Content="显式 TLS（AUTH TLS）"/>
+                        <ComboBoxItem x:Name="ImplicitFtpsItem" Content="隐式 TLS"/>
+                    </ComboBox>
                     <TextBox Header="主机" AutomationProperties.Name="主机" MaxLength="253" Text="{Binding Host, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBox Header="端口" AutomationProperties.Name="端口" MaxLength="5" InputScope="Number" Text="{Binding PortText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBox Header="用户名" AutomationProperties.Name="用户名" MaxLength="128" Text="{Binding UserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     <ComboBox x:Name="AuthenticationBox" Header="认证方式" AutomationProperties.Name="认证方式" HorizontalAlignment="Stretch">
                         <ComboBoxItem x:Name="PasswordAuthenticationItem" Content="密码"/>
                         <ComboBoxItem x:Name="PrivateKeyAuthenticationItem" Content="私钥"/>
+                        <ComboBoxItem x:Name="AnonymousAuthenticationItem" Content="匿名（FTP / FTPS）"/>
                     </ComboBox>
                     <TextBox Header="私钥绝对路径（私钥认证时填写）" AutomationProperties.Name="私钥绝对路径" Text="{Binding PrivateKeyPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
