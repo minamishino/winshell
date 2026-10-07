@@ -11,11 +11,13 @@
                 <NavigationViewItem x:Name="WorkspaceItem" Content="配置详情" Icon="Document" AutomationProperties.Name="配置详情工作区"/>
                 <NavigationViewItem x:Name="SshItem" Content="SSH 会话" Icon="World" AutomationProperties.Name="SSH 会话工作区"/>
                 <NavigationViewItem x:Name="FilesItem" Content="SFTP 文件" Icon="Folder" AutomationProperties.Name="SFTP 文件工作区"/>
+                <NavigationViewItem x:Name="McpItem" Content="AI / MCP 权限" Icon="Permissions" AutomationProperties.Name="AI MCP 权限"/>
             </NavigationView.MenuItems>
             <Grid>
                 <ContentControl x:Name="ConnectionsHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                 <ContentControl x:Name="SshHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                 <ContentControl x:Name="FilesHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                <ContentControl x:Name="McpHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                 <Grid x:Name="WorkspaceHost" Visibility="Collapsed">
                     <TabView x:Name="DetailsTabs" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
                              TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
