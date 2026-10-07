@@ -6,7 +6,7 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 namespace WinShell.Infrastructure.Ssh;
 
 internal sealed class SshTerminalSession(SshClient client, ushort columns, ushort rows,
-    Func<SshConnectionException?, Task> closeOwner) : IShellSession, IShellSessionExit
+    Func<SshConnectionException?, Task> closeOwner, string? startupCommand = null) : IShellSession, IShellSessionExit
 {
     private readonly object _gate = new();
     private readonly BorrowedInputStream _input = new();
@@ -46,10 +46,11 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
                         linked.Token.ThrowIfCancellationRequested();
                         _shell = client.CreateShell(_input, _output, _output, "xterm-256color", columns, rows, 0, 0,
                             new Dictionary<Renci.SshNet.Common.TerminalModes, uint>(), 16384);
-                        starting = _shell.StartExclusiveSessionAsync(WakeForShutdown, _stop.Token);
+                        starting = _shell.StartExclusiveSessionAsync(WakeForShutdown, startupCommand, _stop.Token);
                         _monitor = MonitorAsync(_shell);
                     }
-                    using var registration = token.Register(_stop.Cancel);
+                    // Caller cancellation is a local close, not a remote transport loss.
+                    using var registration = token.Register(RequestStop);
                     await starting.ConfigureAwait(false);
                 }
                 catch (Exception error)
@@ -125,6 +126,12 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
     {
         if (columns is 0 or > 400 || rows is 0 or > 160) throw new ArgumentOutOfRangeException(nameof(columns), "终端尺寸范围为1..400列、1..160行。");
     }
+    internal static void ValidateStartupCommand(string? command)
+    {
+        if (command is null) return;
+        if (command.Length == 0 || command.Length > 8192 || command.Contains('\0') || new System.Text.UTF8Encoding(false, true).GetByteCount(command) > 8192)
+            throw new ArgumentException("终端启动命令必须为1..8192个有效 UTF-8 字节，且不含 NUL。", nameof(command));
+    }
     public ValueTask CloseAsync(CancellationToken token)
     {
         RequestStop();
@@ -137,8 +144,10 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
             if (_closing) return;
             _closing = true;
             _output.StopWriting(discard: true);
-            _input.Dispose();
+            // Mark the mature exclusive owner closing before waking its borrowed input reader.
+            // Otherwise the pump can observe disposal as a new failure before its cancel callback runs.
             _stop.Cancel();
+            _input.Dispose();
             _shutdown.TrySetResult();
         }
     }
