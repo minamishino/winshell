@@ -5,8 +5,9 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 
 namespace WinShell.Infrastructure.Ssh;
 
-internal sealed class SshNetSession : ISshScriptSession
+internal sealed class SshNetSession : ISshScriptSession, ISshTerminalSession
 {
+    private SshTerminalSession? _terminal;
     private readonly CancellationTokenSource _scriptStop = new();
     private Task<SshScriptResult>? _scriptCore;
     private Exception? _scriptSessionFailure;
@@ -55,7 +56,7 @@ internal sealed class SshNetSession : ISshScriptSession
             {
                 lock (_closeLock)
                 {
-                    if (_closeTask is not null || _scriptCore is not null) return;
+                    if (_closeTask is not null || _scriptCore is not null || _terminal?.HasStarted == true) return;
                     if (_client.IsConnected) continue;
                 }
                 _ = BeginClose(new SshConnectionException(SshFailureKind.Network, "SSH 远端已关闭连接。"));
@@ -70,6 +71,12 @@ internal sealed class SshNetSession : ISshScriptSession
         // Never disconnect/dispose on a protocol worker: library disposal may join that very worker.
         lock (_closeLock)
         {
+            if (_terminal is not null)
+            {
+                _terminal.ObserveFailure(HostKeyFailure ?? SshSessionFactory.Classify(args.Exception));
+                // Before deferred Start there is no Shell monitor to own close.
+                if (_terminal.HasStarted) return;
+            }
             if (_scriptCore is not null)
             {
                 // Exclusive close joins the listener but reports an aggregate. Retain its original cause for classification.
@@ -91,7 +98,7 @@ internal sealed class SshNetSession : ISshScriptSession
         if (byteCount > 8192) throw new ArgumentException("SSH 脚本不能超过 8192 UTF-8 字节。", nameof(script));
         lock (_closeLock)
         {
-            if (_scriptCore is not null || _closeTask is not null) throw new InvalidOperationException("SSH 脚本会话只能运行一次。");
+            if (_scriptCore is not null || _terminal is not null || _closeTask is not null) throw new InvalidOperationException("SSH 连接只能用于一次脚本或终端。");
             cancellationToken.ThrowIfCancellationRequested();
             var scriptBytes = encoding.GetBytes(script);
             // Publish the owned core before any worker can close the session. The outer wrapper is never joined by close.
@@ -178,12 +185,24 @@ internal sealed class SshNetSession : ISshScriptSession
 
     public ValueTask DisposeAsync() => new(BeginClose(null));
 
+    public WinShell.Core.Terminal.IShellSession CreateTerminalSession(ushort columns, ushort rows)
+    {
+        SshTerminalSession.ValidateSize(columns, rows);
+        lock (_closeLock)
+        {
+            if (_terminal is not null || _scriptCore is not null || _closeTask is not null || !_client.IsConnected)
+                throw new InvalidOperationException("SSH 连接只能用于一次脚本或终端。");
+            return _terminal = new(_client, columns, rows, BeginClose);
+        }
+    }
+
     private Task BeginClose(SshConnectionException? failure)
     {
         lock (_closeLock)
             return _closeTask ??= Task.Run(async () =>
             {
                 await _connectionSettled.Task.ConfigureAwait(false);
+                _terminal?.RequestStop();
                 await _watchCancellation.CancelAsync().ConfigureAwait(false);
                 await _watchTask.ConfigureAwait(false);
                 _watchCancellation.Dispose();
@@ -194,6 +213,12 @@ internal sealed class SshNetSession : ISshScriptSession
                     catch (Exception) { /* The RunScriptAsync caller observes the execution failure. */ }
                 }
                 _scriptStop.Dispose();
+                Exception? terminalFailure = null;
+                if (_terminal is not null)
+                {
+                    try { await _terminal.JoinOwnedAsync().ConfigureAwait(false); }
+                    catch (Exception error) { terminalFailure = error; }
+                }
                 _client.ErrorOccurred -= OnErrorOccurred;
                 try { _client.Dispose(); }
                 finally
@@ -202,6 +227,7 @@ internal sealed class SshNetSession : ISshScriptSession
                     _admission?.Dispose();
                     Closed?.Invoke(this, new SshSessionClosedEventArgs(failure));
                 }
+                if (terminalFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(terminalFailure).Throw();
             });
     }
 }
