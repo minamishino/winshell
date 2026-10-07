@@ -47,7 +47,7 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
             if (count == 0)
             {
                 if (lineLength != 0)
-                    throw new IOException("FTP 目录行不完整。");
+                    throw new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 目录行不完整。");
                 await client.ConfirmCompletionAsync(stream, token).ConfigureAwait(false);
                 return new RemoteDirectoryPage(path, entries.AsReadOnly(), false);
             }
@@ -65,11 +65,11 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
                         continue;
                     var item = parser.ParseSingleLine(path, text, client.Capabilities, machine);
                     if (item is null)
-                        throw new IOException("无法解析 FTP 目录记录。");
+                        throw new RemoteFileException(RemoteFileFailureKind.Protocol, "无法解析 FTP 目录记录。");
                     if (item.Name is "." or "..")
                         continue;
                     if (item.Size < 0 && item.Type == FtpObjectType.File)
-                        throw new IOException("FTP 文件长度无效。");
+                        throw new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 文件长度无效。");
                     entries.Add(new RemoteFileEntry(item.Name, FtpPathPolicy.Child(path, item.Name), item.Type == FtpObjectType.Directory, item.Type == FtpObjectType.File, Math.Max(0, item.Size)));
                     if (entries.Count == 1000)
                         return new RemoteDirectoryPage(path, entries.AsReadOnly(), true);
@@ -88,7 +88,7 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
     private async Task EnsureAbsentAsync(BoundedFtpClient client, string directory, string target, string? temporary, CancellationToken token)
     {
         var page = await ListCoreAsync(client, directory, token).ConfigureAwait(false);
-        if (page.Entries.Any(entry => entry.FullPath == target || entry.FullPath == temporary))
+        if (page.Entries.Any(entry => string.Equals(entry.FullPath, target, StringComparison.OrdinalIgnoreCase) || string.Equals(entry.FullPath, temporary, StringComparison.OrdinalIgnoreCase)))
             throw new IOException("上传目标或临时路径已存在；不覆盖文件。");
         if (page.IsLimited)
             throw new IOException("目录快照达到上限，无法确认目标不存在；上传已拒绝。");
