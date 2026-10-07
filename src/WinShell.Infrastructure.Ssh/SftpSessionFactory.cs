@@ -36,9 +36,11 @@ public sealed class SftpSessionFactory(IKnownHostRepository knownHosts, ICredent
         try { trusted = await knownHosts.ReadAsync(endpoint, token).ConfigureAwait(false); }
         catch (OperationCanceledException) { throw; }
         catch (Exception error) { throw new SshConnectionException(SshFailureKind.Storage, "无法读取可信主机记录；连接已拒绝。", error); }
-        using var authentication = trusted is null ? SshAuthenticationScope.CreateProbe(profile.UserName)
-            : await SshAuthenticationScope.CreateAsync(profile, credentials, token).ConfigureAwait(false);
-        using var cancellableAuthentication = new CancellableAuthenticationMethod(authentication.Method, token);
+        using Renci.SshNet.AuthenticationMethod authentication = trusted is null
+            ? new NoneAuthenticationMethod(profile.UserName)
+            : new DeferredAuthenticationMethod(profile, credentials, token);
+        token.ThrowIfCancellationRequested();
+        using var cancellableAuthentication = new CancellableAuthenticationMethod(authentication, token);
         var connection = new ConnectionInfo(endpoint.Host, endpoint.Port, profile.UserName, cancellableAuthentication) { Timeout = Timeout };
         // The verified receive budgets assume uncompressed SSH payloads.
         connection.CompressionAlgorithms.Remove("zlib@openssh.com");
