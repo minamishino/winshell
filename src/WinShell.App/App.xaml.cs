@@ -1,3 +1,6 @@
+using WinShell.Core.Tunnels;
+using WinShell.App.Features.Tunnels;
+using WinShell.Infrastructure.Windows.Tunnels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
@@ -26,6 +29,7 @@ public partial class App : Application
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
     private FilesPage? _filesPage;
+    private TunnelsPage? _tunnelsPage;
     private Task? _shutdown;
 
     public App() => InitializeComponent();
@@ -44,6 +48,10 @@ public partial class App : Application
             builder.Services.AddSingleton<ConnectionAdmissionBudget>();
             builder.Services.AddSingleton<ISftpSessionFactory, SftpSessionFactory>();
             builder.Services.AddSingleton<FilesPage>();
+            builder.Services.AddSingleton<TunnelAdmissionBudget>();
+            builder.Services.AddSingleton<ITunnelFactory, TunnelSessionFactory>();
+            builder.Services.AddSingleton<ITunnelDefinitionRepository>(_ => new JsonTunnelDefinitionRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<TunnelsPage>();
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
@@ -55,6 +63,7 @@ public partial class App : Application
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
+            _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -83,7 +92,8 @@ public partial class App : Application
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files);
+        var tunnels = AttemptAsync(() => _tunnelsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, tunnels);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
