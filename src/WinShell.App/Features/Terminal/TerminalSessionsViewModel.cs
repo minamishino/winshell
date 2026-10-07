@@ -3,6 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
 using WinShell.Core.Terminal;
+using WinShell.Core.Docker;
+using WinShell.Infrastructure.Ssh.Docker;
 
 namespace WinShell.App.Features.Terminal;
 
@@ -43,7 +45,14 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
         OnPropertyChanged(nameof(OwnedCount));
         return tab;
     }
-    public async Task<IShellSession> ConnectSshAsync(ConnectionProfile profile, CancellationToken token)
+    public Task<IShellSession> ConnectDockerAsync(DockerTerminalRequest request, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var command = DockerScriptBuilder.Terminal(request.ContainerId, request.Shell);
+        return ConnectCoreAsync(request.Profile, token, command);
+    }
+    public Task<IShellSession> ConnectSshAsync(ConnectionProfile profile, CancellationToken token) => ConnectCoreAsync(profile, token, null);
+    private async Task<IShellSession> ConnectCoreAsync(ConnectionProfile profile, CancellationToken token, string? startupCommand)
     {
         await ValidateSavedProfileAsync(profile, token);
         var result = await _factory.ConnectAsync(profile, token);
@@ -62,9 +71,10 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
         try
         {
             token.ThrowIfCancellationRequested();
+            await ValidateSavedProfileAsync(profile, token);
             if (connected.Session is not ISshTerminalSession terminal)
                 throw new SshConnectionException(SshFailureKind.Protocol, "SSH 连接不支持交互终端。");
-            return terminal.CreateTerminalSession(80, 24);
+            return terminal.CreateTerminalSession(80, 24, startupCommand);
         }
         catch (Exception initial)
         {
