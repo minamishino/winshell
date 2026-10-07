@@ -4,6 +4,7 @@
   </Configurations>
   <Folder Name="/src/">
     <Project Path="src/WinShell.Core/WinShell.Core.csproj" />
+    <Project Path="src/WinShell.Infrastructure.Ftp/WinShell.Infrastructure.Ftp.csproj" />
     <Project Path="src/WinShell.Infrastructure.Windows/WinShell.Infrastructure.Windows.csproj" />
     <Project Path="src/WinShell.SshNet.Source/Renci.SshNet.csproj" />
     <Project Path="src/WinShell.Infrastructure.Ssh/WinShell.Infrastructure.Ssh.csproj" />
