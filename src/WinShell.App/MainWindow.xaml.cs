@@ -1,4 +1,5 @@
-using WinShell.App.Features.Mcp;
+using WinShell.App.Features.Settings;
+using WinShell.Core.Settings;
 using WinShell.App.Features.Tunnels;
 using System.ComponentModel;
 using Microsoft.UI.Windowing;
@@ -25,11 +26,12 @@ public sealed partial class MainWindow : Window
     private readonly NativeDialogService _dialogs;
     private readonly FilesPage _filesPage;
     private readonly TunnelsPage _tunnelsPage;
+    private readonly SettingsPage _settingsPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TunnelsPage tunnelsPage, DockerPage dockerPage, TerminalSessionsPage terminalPage, NativeDialogService dialogs)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, SettingsPage settingsPage, TunnelsPage tunnelsPage, DockerPage dockerPage, TerminalSessionsPage terminalPage, NativeDialogService dialogs)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
@@ -40,6 +42,7 @@ public sealed partial class MainWindow : Window
         _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
         _filesPage = filesPage;
         _tunnelsPage = tunnelsPage;
+        _settingsPage = settingsPage;
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
@@ -47,7 +50,15 @@ public sealed partial class MainWindow : Window
         FilesHost.Content = filesPage;
         TunnelsHost.Content = tunnelsPage;
         filesPage.SetOwnerWindow(this);
-        McpHost.Content = mcpPage;
+        SettingsHost.Content = settingsPage;
+        _settingsPage.ViewModel.PropertyChanged += Settings_PropertyChanged;
+        RootLayout.ActualThemeChanged += RootTheme_Changed;
+        ApplyTheme();
+        if (Navigation.SettingsItem is NavigationViewItem settingsItem)
+        {
+            settingsItem.Content = "设置";
+            AutomationProperties.SetName(settingsItem, "设置");
+        }
         DockerHost.Content = dockerPage;
         WorkspaceHost.DataContext = workspace;
         Navigation.SelectedItem = ConnectionsItem;
@@ -60,6 +71,27 @@ public sealed partial class MainWindow : Window
     }
 
     public void SetShutdownHandler(Func<Task> shutdownAsync) => _shutdownAsync = shutdownAsync;
+
+    private void Settings_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (!_closing && args.PropertyName == nameof(SettingsViewModel.Theme)) ApplyTheme();
+    }
+    private void ApplyTheme()
+    {
+        RootLayout.RequestedTheme = _settingsPage.ViewModel.Theme switch
+        {
+            AppearanceTheme.Light => ElementTheme.Light,
+            AppearanceTheme.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+        UpdateTitleBarTheme();
+    }
+    private void RootTheme_Changed(FrameworkElement sender, object args) => UpdateTitleBarTheme();
+    private void UpdateTitleBarTheme()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported()) return;
+        AppWindow.TitleBar.PreferredTheme = RootLayout.ActualTheme == ElementTheme.Dark ? TitleBarTheme.Dark : TitleBarTheme.Light;
+    }
 
 
     private void Connections_OpenProfileRequested(object? sender, ConnectionProfile profile)
@@ -96,18 +128,18 @@ public sealed partial class MainWindow : Window
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || McpHost is null || DockerHost is null || TerminalHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || SettingsHost is null || DockerHost is null || TerminalHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
-        var showMcp = ReferenceEquals(args.SelectedItem, McpItem);
+        var showSettings = args.IsSettingsSelected;
         var showTerminal = ReferenceEquals(args.SelectedItem, SshItem);
         TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
         _terminalPage.SetWorkspaceVisible(showTerminal);
-        McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
+        SettingsHost.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
         var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
         DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showMcp || showDocker ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showSettings || showDocker ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
@@ -187,6 +219,8 @@ public sealed partial class MainWindow : Window
         _connectionsPage.OpenProfileRequested -= Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;
+        _settingsPage.ViewModel.PropertyChanged -= Settings_PropertyChanged;
+        RootLayout.ActualThemeChanged -= RootTheme_Changed;
         _dialogs.PresentationChanged = null;
         return Task.WhenAll(_pendingTabActions.ToArray());
     }
