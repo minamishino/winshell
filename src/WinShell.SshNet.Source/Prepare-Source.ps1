@@ -1,7 +1,7 @@
 param([switch]$Baseline)
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$evidenceRoot = Join-Path $repositoryRoot 'artifacts/sftp-product/source'
+$evidenceRoot = Join-Path $repositoryRoot 'artifacts/tunnel-product/source'
 $commit = '7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e'
 $expectedHash = 'C75DAF0093744F12BF50F9E7708C6460203DDD824EA7D2F441DEF7066F114CF0'
 $archive = Join-Path $evidenceRoot 'upstream.zip'
@@ -37,6 +37,7 @@ $patchManifest = @()
 if (!$Baseline) {
     $patchNames = @('Shell')
     $patchNames += 'Sftp'
+    $patchNames += 'Forwarding'
     foreach ($patchName in $patchNames) {
         $patchInput = Join-Path $PSScriptRoot "$patchName.patch"
         $patch = Join-Path $evidenceRoot "$patchName.apply.patch"
@@ -44,14 +45,22 @@ if (!$Baseline) {
         # also use core.eol on Windows, so pin both settings. No whitespace relaxation.
         [IO.File]::WriteAllText($patch, [IO.File]::ReadAllText($patchInput).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
         if ($patchName -eq 'Sftp' -and (Get-FileHash -LiteralPath $patch).Hash -ne '62EF757CDBE8396AAE1402C6C059EE6A4A48E30F9376AB9072B2F244CE290FA8') { throw 'Reviewed Sftp patch hash mismatch.' }
+        if ($patchName -eq 'Forwarding' -and (Get-FileHash -LiteralPath $patch).Hash -ne 'D0DF7F0160181CA33AFAC78D77D933FB84F96F054801E609AD1A7C3641135DD5') { throw 'Reviewed Forwarding patch hash mismatch.' }
         $patchManifest += [pscustomobject]@{ Path="$patchName.patch"; InputSha256=(Get-FileHash $patchInput).Hash; CanonicalSha256=(Get-FileHash $patch).Hash }
-        & git -c core.autocrlf=false -c core.eol=lf -C $repositoryRoot apply --unidiff-zero --check --directory="artifacts/sftp-product/source/patched/SSH.NET-$commit" $patch
+        & git -c core.autocrlf=false -c core.eol=lf -C $repositoryRoot apply --unidiff-zero --check --directory="artifacts/tunnel-product/source/patched/SSH.NET-$commit" $patch
         if ($LASTEXITCODE -ne 0) { throw "$patchName patch check failed." }
-        & git -c core.autocrlf=false -c core.eol=lf -C $repositoryRoot apply --unidiff-zero --directory="artifacts/sftp-product/source/patched/SSH.NET-$commit" $patch
+        & git -c core.autocrlf=false -c core.eol=lf -C $repositoryRoot apply --unidiff-zero --directory="artifacts/tunnel-product/source/patched/SSH.NET-$commit" $patch
         if ($LASTEXITCODE -ne 0) { throw "$patchName patch apply failed." }
     }
 }
 $expectedChanges = @{
+    'src/Renci.SshNet/Session.cs' = @('A1034D92A2992051D1944295FBD9B608C6D5FCABD93DF1F6E202368C02F3DC29','77F54E28A7D68D7DCA65B2452D09A069C80E2E22012C4EAF96A4D444D9D9CD56')
+    'src/Renci.SshNet/ForwardedPort.cs' = @('42D729EA515F42B8C44BA2B98493267EA2B322142A9C705CC302639756C6FDAE','3196DE4ADBE80631C3B4C4BF8F682E7E9A469B1F00F0B17F1AE56B1E725ECFED')
+    'src/Renci.SshNet/ForwardedPortLocal.cs' = @('EDC2F6CC3E044D9BB44F5DA838D5D35FF652128738634DE1998264B4E4DE6DBA','7E473B5781176FBBCEB9B2E630D8D1012F8187CCAABEDD2D919277C4E5135B23')
+    'src/Renci.SshNet/ForwardedPortRemote.cs' = @('E85F684CC75E399E118221AE9D3F4A32627A61061549AC7C7D56D4EA70465732','FC3787F017AEC7AFF692653127BC620AAF3EE3B5405857B277E446E3E82770CD')
+    'src/Renci.SshNet/ForwardedPortDynamic.cs' = @('2098BEAA5269D19E6B61793D7FE7DA2C786441B22DA0067D37E63A2FB10A2FE6','5281310EDAF2A27A26A2E1EFBD0D157B3E537994F5E02ED39C10F6E69A6A9AFE')
+    'src/Renci.SshNet/Channels/ChannelDirectTcpip.cs' = @('4B0C943B964E2DBFB04F03A6009625A8699F9E3D98934D9B78B36CCCECC94598','4BBD5C7B022B47D1F5C5C587137FDF1D787FAD85637D8C5820375B4A57A7F1D2')
+    'src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs' = @('1057A80CF38DEA3CACC78903F3C2520A1A1711605C6BFE83B50DF9F39F435A77','746BACA46BCCE51A23CB5EF6BC95D23090FC5795049920B8113FF3F042A5F191')
     'src/Renci.SshNet/Shell.cs' = @('9B4568F25756DD547D9F58210F6F6A599943A7666DCC7EFE5CC1E3F193C430B8','5A58631D87A232AD6FA3E7AFBD22B7D29D77E69BD0D3C075E15A42AC1E59AF92')
     'src/Renci.SshNet/Sftp/SftpSession.cs' = @('C4789D52B3312BBF4CE32BC8E3BF1B9D553998B2F663E914B988E8553871C6AC','3EEC163A974B734DFC9FC1DA06722B0E4699C611A148669D6E8DAA83048107FB')
     'src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs' = @('AB857C8BC4B25545A05977B2F8C625A4EF900BE77901AEB0F536A52A1D2E18BC','F9713C005445C9306458928E8F1EBB5AE51D4F2E2EDA135081CC8DD49000946F')
