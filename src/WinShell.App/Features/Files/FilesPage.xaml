@@ -3,15 +3,15 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="using:WinShell.App.Features.Files">
  <Page.Resources><local:DirectoryLabelConverter x:Key="DirectoryLabel"/></Page.Resources>
- <Grid Padding="24" RowSpacing="12">
+ <Grid Padding="16" RowSpacing="8">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <TextBlock Text="远端文件" Style="{ThemeResource TitleTextBlockStyle}"/>
+  <TextBlock Text="文件" Style="{ThemeResource SubtitleTextBlockStyle}"/>
   <Grid Grid.Row="1" ColumnSpacing="8">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <ComboBox x:Name="Profiles" PlaceholderText="选择 SSH / FTP / FTPS 配置" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="文件连接配置"/>
    <Button Grid.Column="1" Content="连接" Click="Connect_Click" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="连接远端文件"/>
    <Button Grid.Column="2" Content="断开" Click="Disconnect_Click" IsEnabled="{Binding CanBrowse}" AutomationProperties.Name="关闭文件连接"/>
-   <Button Grid.Column="3" Content="重新加载配置" Click="Reload_Click" IsEnabled="{Binding CanConnect}"/>
+   <Button Grid.Column="3" Content="刷新配置" Click="Reload_Click" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="重新加载文件连接配置"/>
   </Grid>
   <Grid Grid.Row="2" ColumnSpacing="8">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
