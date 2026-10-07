@@ -25,16 +25,17 @@ public sealed class JsonMcpGrantRepository : IMcpGrantRepository
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 8 });
             var root = document.RootElement;
             Properties(root, "schemaVersion", "grants");
-            if (root.GetProperty("schemaVersion").ValueKind != JsonValueKind.Number || !root.GetProperty("schemaVersion").TryGetInt32(out var version) || version != 1)
+            if (root.GetProperty("schemaVersion").ValueKind != JsonValueKind.Number || !root.GetProperty("schemaVersion").TryGetInt32(out var version) || version is not (1 or 2))
                 throw new InvalidDataException("授权版本无效。");
             var rows = root.GetProperty("grants");
             if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() > 64) throw new InvalidDataException("授权数量无效。");
             var grants = new List<McpGrant>(rows.GetArrayLength());
             foreach (var row in rows.EnumerateArray())
             {
-                Properties(row, "profileId", "profileBinding", "hostKeyBinding", "listProfiles", "runScript");
+                Properties(row, version == 1 ? ["profileId", "profileBinding", "hostKeyBinding", "listProfiles", "runScript"] : ["profileId", "profileBinding", "hostKeyBinding", "listProfiles", "runScript", "dockerRead", "dockerControl", "dockerExec"]);
                 grants.Add(new(row.GetProperty("profileId").GetGuid(), row.GetProperty("profileBinding").GetString()!,
-                    row.GetProperty("hostKeyBinding").GetString()!, row.GetProperty("listProfiles").GetBoolean(), row.GetProperty("runScript").GetBoolean()));
+                    row.GetProperty("hostKeyBinding").GetString()!, row.GetProperty("listProfiles").GetBoolean(), row.GetProperty("runScript").GetBoolean(),
+                    version == 2 && row.GetProperty("dockerRead").GetBoolean(), version == 2 && row.GetProperty("dockerControl").GetBoolean(), version == 2 && row.GetProperty("dockerExec").GetBoolean()));
             }
             Validate(grants);
             return grants;
@@ -51,8 +52,8 @@ public sealed class JsonMcpGrantRepository : IMcpGrantRepository
         return LockedAsync(async token =>
         {
             Validate(snapshot);
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, grants = snapshot.Select(grant => new
-            { profileId = grant.ProfileId, profileBinding = grant.ProfileBinding, hostKeyBinding = grant.HostKeyBinding, listProfiles = grant.ListProfiles, runScript = grant.RunScript }) });
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 2, grants = snapshot.Select(grant => new
+            { profileId = grant.ProfileId, profileBinding = grant.ProfileBinding, hostKeyBinding = grant.HostKeyBinding, listProfiles = grant.ListProfiles, runScript = grant.RunScript, dockerRead = grant.DockerRead, dockerControl = grant.DockerControl, dockerExec = grant.DockerExec }) });
             if (bytes.Length > MaximumBytes) throw new InvalidDataException("授权文件超出字节上限。");
             var target = Path.Combine(_directory, FileNames[0]);
             var temporary = Path.Combine(_directory, $"mcp-grants.{Guid.NewGuid():N}.tmp");
