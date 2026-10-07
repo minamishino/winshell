@@ -10,6 +10,7 @@ using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
 using WinShell.App.Features.Docker;
+using WinShell.App.Features.Terminal;
 using WinShell.Core.Profiles;
 using WinShell.App.Features.Files;
 
@@ -20,22 +21,29 @@ public sealed partial class MainWindow : Window
     private readonly ConnectionProfilesPage _connectionsPage;
     private readonly WorkspaceViewModel _workspace;
     private readonly SshSessionsPage _sshPage;
+    private readonly TerminalSessionsPage _terminalPage;
+    private readonly NativeDialogService _dialogs;
     private readonly FilesPage _filesPage;
     private readonly TunnelsPage _tunnelsPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TunnelsPage tunnelsPage, DockerPage dockerPage)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TunnelsPage tunnelsPage, DockerPage dockerPage, TerminalSessionsPage terminalPage, NativeDialogService dialogs)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
         _sshPage = sshPage;
+        _terminalPage = terminalPage;
+        _connectionsPage.ViewModel.BeginTerminalProfileMutationAsync = _terminalPage.BeginProfileMutationAsync;
+        _dialogs = dialogs;
+        _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
         _filesPage = filesPage;
         _tunnelsPage = tunnelsPage;
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
+        TerminalHost.Content = terminalPage;
         FilesHost.Content = filesPage;
         TunnelsHost.Content = tunnelsPage;
         filesPage.SetOwnerWindow(this);
@@ -71,13 +79,14 @@ public sealed partial class MainWindow : Window
     {
         if (_closing) return;
         Navigation.SelectedItem = SshItem;
-        await _sshPage.ConnectSavedProfileAsync(profile);
+        await _terminalPage.ConnectSavedProfileAsync(profile);
     }
 
     private async void Connections_ProfileDeleted(object? sender, Guid profileId)
     {
         if (_closing) return;
         _ = _sshPage.CloseProfileAsync(profileId);
+        _ = _terminalPage.CloseProfileAsync(profileId);
         _ = _filesPage.CloseProfileAsync(profileId);
         var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
         if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
@@ -87,17 +96,19 @@ public sealed partial class MainWindow : Window
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || McpHost is null || DockerHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || McpHost is null || DockerHost is null || TerminalHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
-        var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
         var showMcp = ReferenceEquals(args.SelectedItem, McpItem);
+        var showTerminal = ReferenceEquals(args.SelectedItem, SshItem);
+        TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
+        _terminalPage.SetWorkspaceVisible(showTerminal);
         McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
         var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
         DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showTunnels || showMcp || showDocker ? Visibility.Collapsed : Visibility.Visible;
-        SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showMcp || showDocker ? Visibility.Collapsed : Visibility.Visible;
+        SshHost.Visibility = Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
         TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
@@ -176,6 +187,7 @@ public sealed partial class MainWindow : Window
         _connectionsPage.OpenProfileRequested -= Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;
+        _dialogs.PresentationChanged = null;
         return Task.WhenAll(_pendingTabActions.ToArray());
     }
 

@@ -32,6 +32,8 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
 
     public ReadOnlyObservableCollection<ConnectionProfile> Profiles { get; }
     public event EventHandler<Guid>? ProfileDeleted;
+    // The window binds this to the actual terminal page; the lease spans every repository/vault write.
+    public Func<Guid, CancellationToken, Task<IDisposable>>? BeginTerminalProfileMutationAsync { get; set; }
     public ConnectionProfile? SelectedProfile { get => _selectedProfile; set => SetProperty(ref _selectedProfile, value); }
     public string SearchText
     {
@@ -60,6 +62,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     {
         var errors = ConnectionProfileValidator.Validate(profile);
         if (errors.Count != 0) throw new ArgumentException(string.Join(Environment.NewLine, errors.Select(error => error.Message)));
+        using var mutation = await BeginMutationAsync(profile.Id, token);
         await _repository.UpsertAsync(profile, token);
         if (_disposed) return;
         var index = _allProfiles.FindIndex(item => item.Id == profile.Id);
@@ -72,6 +75,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     public Task DeleteProfileAsync(Guid profileId, CancellationToken cancellationToken) => RunAsync(async token =>
     {
         RequireSavedProfile(profileId);
+        using var mutation = await BeginMutationAsync(profileId, token);
         await _credentials.DeleteAsync(profileId, token);
         try
         {
@@ -105,6 +109,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
             try
             {
                 RequireSavedProfile(profileId);
+                using var mutation = await BeginMutationAsync(profileId, token);
                 await _credentials.WriteAsync(profileId, ownedSecret, token);
                 if (!_disposed) StatusMessage = "凭据已保存到 Windows 凭据管理器。";
             }
@@ -115,6 +120,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     public Task DeleteCredentialAsync(Guid profileId, CancellationToken cancellationToken) => RunAsync(async token =>
     {
         RequireSavedProfile(profileId);
+        using var mutation = await BeginMutationAsync(profileId, token);
         await _credentials.DeleteAsync(profileId, token);
         if (!_disposed) StatusMessage = "凭据已删除；连接配置保持不变。";
     }, cancellationToken);
@@ -130,6 +136,16 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     {
         if (!_allProfiles.Any(profile => profile.Id == profileId))
             throw new ArgumentException("请先保存连接配置，再管理其凭据。");
+    }
+    private async Task<IDisposable?> BeginMutationAsync(Guid profileId, CancellationToken token)
+    {
+        if (BeginTerminalProfileMutationAsync is not { } begin) return null;
+        StatusMessage = "正在关闭此连接的终端，再更新配置或凭据；保存后请重新打开终端。";
+        try { return await begin(profileId, token); }
+        catch (AggregateException aggregate)
+        {
+            throw new InvalidOperationException($"终端关闭失败，未开始修改配置或凭据：{aggregate.Flatten().InnerExceptions[0].Message}", aggregate);
+        }
     }
 
     private Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken, Action? cleanup = null)
@@ -167,6 +183,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         IOException => "配置文件读写失败，请检查磁盘空间、文件权限或占用。",
         TimeoutException => "等待配置文件锁超时，请稍后重试。",
         ArgumentException argument => argument.Message,
+        InvalidOperationException operation => operation.Message,
         _ => "操作失败；配置或凭据未能完成更新。"
     };
 

@@ -12,6 +12,7 @@ using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
 using WinShell.App.Features.Docker;
 using WinShell.Core.Docker;
+using WinShell.App.Features.Terminal;
 using WinShell.Core.Connections;
 using WinShell.Infrastructure.Ssh.Docker;
 using WinShell.Core.Ssh;
@@ -34,6 +35,7 @@ public partial class App : Application
     private WorkspaceViewModel? _workspace;
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
+    private TerminalSessionsPage? _terminalPage;
     private FilesPage? _filesPage;
     private TunnelsPage? _tunnelsPage;
     private DockerPage? _dockerPage;
@@ -65,6 +67,7 @@ public partial class App : Application
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
+            builder.Services.AddSingleton<TerminalSessionsPage>();
             builder.Services.AddSingleton<IMcpGrantRepository>(_ => new JsonMcpGrantRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<McpPermissionsViewModel>();
             builder.Services.AddSingleton<McpPermissionsPage>();
@@ -77,6 +80,7 @@ public partial class App : Application
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
+            _terminalPage = _host.Services.GetRequiredService<TerminalSessionsPage>();
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
             _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
             _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
@@ -108,11 +112,14 @@ public partial class App : Application
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        var terminal = AttemptAsync(() => _terminalPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var tunnels = AttemptAsync(() => _tunnelsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var docker = AttemptAsync(() => _dockerPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp, tunnels, docker);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, terminal, files, mcp, tunnels, docker);
+        // Keep mutation admission bound until pending profile writes and terminal owners have joined.
+        if (_profiles is not null) _profiles.BeginTerminalProfileMutationAsync = null;
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());

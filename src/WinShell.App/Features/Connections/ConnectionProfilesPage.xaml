@@ -7,7 +7,7 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <StackPanel Spacing="4">
             <TextBlock Text="连接配置" Style="{ThemeResource TitleTextBlockStyle}"/>
-            <TextBlock Text="管理连接信息和 Windows 凭据；选择已保存的 SSH 配置可连接。交互式终端尚未接入。" TextWrapping="Wrap"/>
+            <TextBlock Text="管理连接信息和 Windows 凭据；选择已保存的 SSH 配置可打开交互终端。" TextWrapping="Wrap"/>
         </StackPanel>
         <Grid Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

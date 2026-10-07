@@ -1,0 +1,43 @@
+<Page x:Class="WinShell.App.Features.Terminal.TerminalSessionsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:terminal="using:WinShell.App.Features.Terminal">
+    <Grid Padding="16" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="新建 PowerShell" Click="PowerShell_Click" AutomationProperties.Name="新建 PowerShell 终端"/>
+            <ComboBox x:Name="Distributions" PlaceholderText="选择 WSL 发行版" MinWidth="160" MaxWidth="280" AutomationProperties.Name="WSL 发行版"/>
+            <Button Content="刷新 WSL" Click="RefreshWsl_Click"/>
+            <Button Content="打开 WSL" Click="Wsl_Click"/>
+        </StackPanel>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <Button Content="重新连接" Click="Reconnect_Click"/>
+            <Button Content="关闭 / 取消" Click="Close_Click"/>
+            <Button Content="复制选区" Click="Copy_Click"/>
+            <Button Content="粘贴" Click="Paste_Click"/>
+            <TextBlock Text="最多两个终端；SSH 从连接配置中打开。" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        </StackPanel>
+        <TabView x:Name="SessionTabs" Grid.Row="2" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
+            TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+            TabCloseRequested="Tabs_CloseRequested" SelectionChanged="Tabs_SelectionChanged" AutomationProperties.Name="交互终端标签">
+            <TabView.TabItemTemplate>
+                <DataTemplate x:DataType="terminal:TerminalTabViewModel">
+                    <TabViewItem Header="{Binding Title}" IsClosable="True" AutomationProperties.Name="{Binding Title}"/>
+                </DataTemplate>
+            </TabView.TabItemTemplate>
+        </TabView>
+        <Grid x:Name="TerminalHosts" Grid.Row="3" MinHeight="160">
+            <TextBlock x:Name="EmptyMessage" Text="打开 SSH、PowerShell 或 WSL，开始使用交互终端。" TextWrapping="Wrap" Margin="16"/>
+        </Grid>
+        <ScrollViewer Grid.Row="3" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
+            <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
+        </ScrollViewer>
+        <StackPanel Grid.Row="4" Spacing="4">
+            <TextBlock Text="{Binding SelectedTab.Status}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+            <TextBlock x:Name="Feedback" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+        </StackPanel>
+    </Grid>
+</Page>

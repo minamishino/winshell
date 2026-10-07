@@ -26,6 +26,7 @@ internal sealed class NativeRendererWindow
     private Exception? _failure;
     private int _inputCount;
     private char? _pendingHighSurrogate;
+    private (ushort VirtualKey, ushort ScanCode)? _lastKeyEvent;
     private byte[]? _sizeReply;
     private byte[]? _selectionReply;
     private byte[]? _pendingScroll;
@@ -257,6 +258,30 @@ internal sealed class NativeRendererWindow
         try { await _writer.WriteAsync(type, payload, CancellationToken.None).ConfigureAwait(false); }
         finally { _writeSerial.Release(); }
     }
+    private void SendKey(ushort virtualKey, ushort scanCode, ushort flags, bool keyDown)
+    {
+        // Mirror the native Store/Take pair, including key-up metadata, on this message thread.
+        _lastKeyEvent = (virtualKey, scanCode);
+        TerminalSendKeyEvent(_terminal!, virtualKey, scanCode, flags, keyDown);
+    }
+    private void SendCharacter(char character, ushort scanCode, ushort flags)
+    {
+        var previousKey = _lastKeyEvent;
+        _lastKeyEvent = null;
+        var matchingKey = previousKey is { VirtualKey: > 0 and < 0xff } key && key.ScanCode == scanCode;
+        if (!matchingKey && (scanCode == 0 || MapVirtualKeyW(scanCode, 1) == 0))
+        {
+            var characterKey = VkKeyScanW(character);
+            if (characterKey == -1 || characterKey > byte.MaxValue)
+            {
+                // Reject the fixed engine's unmapped/packed-shift fallback, preserving safe Enter/Backspace keys.
+                // VK_PACKET seeds text without an extra input event when its scan is zero.
+                TerminalSendKeyEvent(_terminal!, 0xe7, 0, flags, true);
+                scanCode = 0;
+            }
+        }
+        TerminalSendCharEvent(_terminal!, character, scanCode, flags);
+    }
     private nint Subclass(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data)
     {
         if (_closing && message == 0x3D) return 0;
@@ -269,9 +294,9 @@ internal sealed class NativeRendererWindow
                 switch (message)
                 {
                     case 0x21: SetFocus(_window); TerminalSetFocused(_terminal, true); return 1;
-                    case 0x100: case 0x104: TerminalSendKeyEvent(_terminal, (ushort)wParam, scan, flags, true); return 0;
-                    case 0x101: case 0x105: TerminalSendKeyEvent(_terminal, (ushort)wParam, scan, flags, false); return 0;
-                    case 0x102: case 0x106: TerminalSendCharEvent(_terminal, (char)wParam, scan, flags); return 0;
+                    case 0x100: case 0x104: SendKey((ushort)wParam, scan, flags, true); return 0;
+                    case 0x101: case 0x105: SendKey((ushort)wParam, scan, flags, false); return 0;
+                    case 0x102: case 0x106: SendCharacter((char)wParam, scan, flags); return 0;
                     case 7: TerminalSetFocused(_terminal, true); break;
                     case 8: TerminalSetFocused(_terminal, false); break;
                     case 0x204: case 0x205: case 0x206: return 0; // Never enter native unbounded clipboard path.
@@ -289,6 +314,8 @@ internal sealed class NativeRendererWindow
     [DllImport("user32.dll")] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
     [DllImport("user32.dll")] private static extern bool TranslateMessage(ref Message message);
     [DllImport("user32.dll")] private static extern nint DispatchMessage(ref Message message);
+    [DllImport("user32.dll")] private static extern uint MapVirtualKeyW(uint code, uint mapping);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern short VkKeyScanW(char character);
     [DllImport("user32.dll")] private static extern nint GetParent(nint window);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll")] private static extern nint GetWindowDpiAwarenessContext(nint window);

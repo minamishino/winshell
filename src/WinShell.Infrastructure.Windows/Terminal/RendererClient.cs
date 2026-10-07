@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using WinShell.Terminal.Shared;
 
 namespace WinShell.Infrastructure.Windows.Terminal;
