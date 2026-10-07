@@ -390,7 +390,7 @@ index 7210b40..abd1171 100644
              }
  
 diff --git a/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs b/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
-index 2e2c752..6eca9a5 100644
+index 2e2c752..fb72216 100644
 --- a/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
 +++ b/src/Renci.SshNet/Channels/ChannelDirectTcpip.cs
 @@ -1,4 +1,4 @@
@@ -431,7 +431,7 @@ index 2e2c752..6eca9a5 100644
 +            var buffer = new byte[_boundedPort != null ? ForwardedPort.BoundedBufferSize(RemotePacketSize) : RemotePacketSize];
  
              SocketAbstraction.ReadContinuous(_socket, buffer, 0, buffer.Length, SendData);
-+            if (_boundedPort != null && IsOpen) { SendEof(); WaitOnHandle(_channelData); }
++            if (_boundedPort != null && IsOpen) { SendEof(); Session.WaitOnHandle(_channelData, Timeout.InfiniteTimeSpan); }
  
              // even though the client has disconnected, we still want to properly close the
              // channel
@@ -493,7 +493,7 @@ index 2e2c752..6eca9a5 100644
          {
              base.OnErrorOccurred(exp);
 diff --git a/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs b/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
-index 1f536ff..e8f4d89 100644
+index 1f536ff..8b8b5ba 100644
 --- a/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
 +++ b/src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs
 @@ -1,4 +1,4 @@
@@ -542,7 +542,7 @@ index 1f536ff..e8f4d89 100644
 +            var buffer = new byte[_boundedPort != null ? ForwardedPort.BoundedBufferSize(RemotePacketSize) : RemotePacketSize];
  
              SocketAbstraction.ReadContinuous(_socket, buffer, 0, buffer.Length, SendData);
-+            if (_boundedPort != null && IsOpen) { SendEof(); WaitOnHandle(_forwardingEof); }
++            if (_boundedPort != null && IsOpen) { SendEof(); Session.WaitOnHandle(_forwardingEof, Timeout.InfiniteTimeSpan); }
          }
  
 +        protected override void OnEof()
