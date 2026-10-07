@@ -7,19 +7,21 @@
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="新建 PowerShell" Click="PowerShell_Click" AutomationProperties.Name="新建 PowerShell 终端"/>
-            <ComboBox x:Name="Distributions" PlaceholderText="选择 WSL 发行版" MinWidth="160" MaxWidth="280" AutomationProperties.Name="WSL 发行版"/>
-            <Button Content="刷新 WSL" Click="RefreshWsl_Click"/>
-            <Button Content="打开 WSL" Click="Wsl_Click"/>
-        </StackPanel>
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-            <Button Content="重新连接" Click="Reconnect_Click"/>
-            <Button Content="关闭 / 取消" Click="Close_Click"/>
-            <Button Content="复制选区" Click="Copy_Click"/>
-            <Button Content="粘贴" Click="Paste_Click"/>
-            <TextBlock Text="最多两个终端；SSH 从连接配置中打开。" VerticalAlignment="Center" TextWrapping="Wrap"/>
-        </StackPanel>
+        <CommandBar x:Name="TerminalCommands" DefaultLabelPosition="Right" Opened="Popup_Opened" Closed="Popup_Closed" AutomationProperties.Name="终端操作">
+            <AppBarButton Icon="Add" Label="新建 PowerShell" Click="PowerShell_Click" AutomationProperties.Name="新建 PowerShell 终端"/>
+            <AppBarButton Icon="Copy" Label="复制" Click="Copy_Click" AutomationProperties.Name="复制终端选区"/>
+            <AppBarButton Icon="Paste" Label="粘贴" Click="Paste_Click" AutomationProperties.Name="粘贴到终端"/>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton Icon="Refresh" Label="重新连接" Click="Reconnect_Click" AutomationProperties.Name="重新连接终端"/>
+                <AppBarButton Icon="Cancel" Label="关闭 / 取消" Click="Close_Click" AutomationProperties.Name="关闭或取消当前终端"/>
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <ComboBox x:Name="Distributions" PlaceholderText="WSL 发行版" HorizontalAlignment="Stretch" DropDownOpened="Popup_Opened" DropDownClosed="Popup_Closed" AutomationProperties.Name="WSL 发行版" ToolTipService.ToolTip="最多两个终端；SSH 从连接配置中打开。"/>
+            <Button Grid.Column="1" Content="刷新" Click="RefreshWsl_Click" AutomationProperties.Name="刷新 WSL 发行版"/>
+            <Button Grid.Column="2" Content="打开 WSL" Click="Wsl_Click" AutomationProperties.Name="打开所选 WSL 发行版"/>
+        </Grid>
         <TabView x:Name="SessionTabs" Grid.Row="2" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
             TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
             TabCloseRequested="Tabs_CloseRequested" SelectionChanged="Tabs_SelectionChanged" AutomationProperties.Name="交互终端标签">
