@@ -32,6 +32,9 @@
         <Grid x:Name="TerminalHosts" Grid.Row="3" MinHeight="160">
             <TextBlock x:Name="EmptyMessage" Text="打开 SSH、PowerShell 或 WSL，开始使用交互终端。" TextWrapping="Wrap" Margin="16"/>
         </Grid>
+        <ScrollViewer Grid.Row="3" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
+            <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
+        </ScrollViewer>
         <StackPanel Grid.Row="4" Spacing="4">
             <TextBlock Text="{Binding SelectedTab.Status}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
             <TextBlock x:Name="Feedback" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
