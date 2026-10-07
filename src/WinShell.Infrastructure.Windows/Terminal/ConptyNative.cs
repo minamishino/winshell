@@ -71,13 +71,17 @@ internal static class ConptyNative
             Marshal.FreeHGlobal(attributes);
         }
     }
-    public static void TerminateIfRunning(SafeProcessHandle process, uint exitCode)
+    public static int RequestTermination(SafeProcessHandle process, uint exitCode)
     {
-        if (TerminateProcess(process, exitCode)) return;
-        var error = Marshal.GetLastWin32Error();
-        // Terminating an already-exited process returns access denied. Its managed wait task
-        // may not have resumed yet; only the same held OS handle's signaled state proves exit.
-        if (error != 5 || WaitForSingleObject(process, 0) != 0) throw new Win32Exception(error);
+        // Capture before any other native call. Classification follows the owner's actual joins.
+        return TerminateProcess(process, exitCode) ? 0 : Marshal.GetLastWin32Error();
+    }
+    public static void VerifyTermination(SafeProcessHandle process, int terminationError)
+    {
+        // A concurrent exit can return access denied before the process object becomes signaled.
+        // Only a fresh OS query after joining may accept that error; every other error survives.
+        if (terminationError != 0 && (terminationError != 5 || WaitForSingleObject(process, 0) != 0))
+            throw new Win32Exception(terminationError);
     }
     public static int WaitForExit(SafeProcessHandle process)
     {

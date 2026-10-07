@@ -216,11 +216,13 @@ public sealed class ConptyShellSession : WinShell.Core.Terminal.IShellSession
         Release(() => { _inputPipe?.Dispose(); _inputPipe = null; });
         Release(() => _outputPipe?.DisposeLocalCopyOfClientHandle());
         if (_console is { IsClosed: false }) Release(() => { _console.Dispose(); NativeCloseCount++; });
+        var terminationError = 0;
         if (!_running && _process is { IsClosed: false } && !ProcessCompletion.IsCompleted)
-            Release(() => ConptyNative.TerminateIfRunning(_process, 1));
+            Release(() => terminationError = ConptyNative.RequestTermination(_process, 1));
         await Join(OutputCompletion).ConfigureAwait(false);
         Release(_output.ReleaseBuffersAfterProducer);
         await Join(ProcessCompletion).ConfigureAwait(false);
+        if (terminationError != 0) Release(() => ConptyNative.VerifyTermination(_process!, terminationError));
         Release(() => { _outputPipe?.Dispose(); _outputPipe = null; });
         Release(() => _process?.Dispose());
         _stop.Dispose();
