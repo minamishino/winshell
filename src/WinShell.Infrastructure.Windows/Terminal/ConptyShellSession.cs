@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace WinShell.Infrastructure.Windows.Terminal;
 
-public sealed class ConptyShellSession : WinShell.Core.Terminal.IShellSession
+public sealed class ConptyShellSession : WinShell.Core.Terminal.IShellSession, WinShell.Core.Terminal.IShellSessionExit
 {
     private readonly string _executablePath;
     private readonly string[] _arguments;
