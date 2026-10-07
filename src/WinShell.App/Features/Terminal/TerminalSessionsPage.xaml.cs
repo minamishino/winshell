@@ -5,6 +5,7 @@ using WinShell.App.Controls;
 using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
 using WinShell.Core.Terminal;
+using WinShell.Core.Docker;
 using WinShell.Infrastructure.Windows.Terminal;
 
 namespace WinShell.App.Features.Terminal;
@@ -17,6 +18,7 @@ public sealed partial class TerminalSessionsPage : Page
     private readonly NativeDialogService _dialogs;
     private readonly Dictionary<TerminalTabViewModel, NativeTerminalControl> _controls = [];
     private readonly Dictionary<TerminalTabViewModel, LocalShellLaunchRequest> _localRequests = [];
+    private readonly Dictionary<TerminalTabViewModel, DockerTerminalRequest> _dockerRequests = [];
     private readonly HashSet<Task> _actions = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly List<Exception> _shutdownFailures = [];
@@ -34,19 +36,29 @@ public sealed partial class TerminalSessionsPage : Page
         ViewModel.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(ViewModel.SelectedTab)) UpdatePresentation(); };
     }
     public Task ConnectSavedProfileAsync(ConnectionProfile profile) => RunActionAsync(() => OpenAsync(profile.DisplayName, profile, null));
+    public async Task<bool> OpenDockerAsync(DockerTerminalRequest request, CancellationToken token)
+    {
+        var started = false;
+        await RunActionAsync(async () => started = await OpenAsync($"{request.Profile.DisplayName} · {request.ContainerId[..12]}", request.Profile, null, request, token));
+        return started;
+    }
     public Task OpenLocalAsync(LocalShellLaunchRequest request) => RunActionAsync(() => OpenAsync(
         request is LocalShellLaunchRequest.Wsl wsl ? wsl.Distribution.Name : "PowerShell 7.6.6", null, request));
-    private async Task OpenAsync(string title, ConnectionProfile? profile, LocalShellLaunchRequest? local)
+    private async Task<bool> OpenAsync(string title, ConnectionProfile? profile, LocalShellLaunchRequest? local, DockerTerminalRequest? docker = null, CancellationToken startupToken = default)
     {
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, startupToken);
+        startup.Token.ThrowIfCancellationRequested();
         var tab = ViewModel.Open(() =>
         {
             var control = new NativeTerminalControl(_job, Path.Combine(AppContext.BaseDirectory, "Terminal", "WinShell.Terminal.NativeHost.exe"));
             var model = new TerminalTabViewModel(title, profile,
-                token => profile is not null ? ViewModel.ConnectSshAsync(profile, token) : Task.FromResult<IShellSession>(_local.Create(local!)),
-                control.StartAsync, () => control.OutputCompletion, () => control.CloseAsync(CancellationToken.None));
+                token => docker is not null ? ViewModel.ConnectDockerAsync(docker, token) : profile is not null ? ViewModel.ConnectSshAsync(profile, token) : Task.FromResult<IShellSession>(_local.Create(local!)),
+                control.StartAsync, () => control.OutputCompletion, () => control.CloseAsync(CancellationToken.None),
+                docker is null ? "" : $"目标：{docker.Profile.Host}:{docker.Profile.Port} / {docker.ContainerId} / {docker.Shell}。关闭连接不保证容器内任务已停止。");
             control.Faulted += (_, error) => model.RecordFailure(error);
             _controls.Add(model, control);
             if (local is not null) _localRequests.Add(model, local);
+            if (docker is not null) _dockerRequests.Add(model, docker);
             TerminalHosts.Children.Add(control);
             return model;
         }, profile?.Id);
@@ -59,10 +71,11 @@ public sealed partial class TerminalSessionsPage : Page
                 var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 void OnLoaded(object sender, RoutedEventArgs args) => loaded.TrySetResult();
                 view.Loaded += OnLoaded;
-                try { if (!view.IsLoaded) await loaded.Task.WaitAsync(TimeSpan.FromSeconds(10), _stop.Token); }
+                try { if (!view.IsLoaded) await loaded.Task.WaitAsync(TimeSpan.FromSeconds(10), startup.Token); }
                 finally { view.Loaded -= OnLoaded; }
             }
-            if (!_closing) _ = tab.StartAsync();
+            startup.Token.ThrowIfCancellationRequested();
+            _ = tab.StartAsync(docker is null ? default : startup.Token);
             UpdatePresentation();
         }
         catch (Exception initial)
@@ -70,6 +83,11 @@ public sealed partial class TerminalSessionsPage : Page
             try { await CloseTabAsync(tab); } catch (Exception cleanup) { initial.Data["TerminalLoadCleanup"] = cleanup; }
             throw;
         }
+        if (docker is null) return true;
+        var started = await tab.StartupSettled;
+        // Join failure/cancellation while retaining the tab's original diagnostic and reconnect target.
+        if (!started) await tab.CloseAsync();
+        return started;
     }
     public void SetWorkspaceVisible(bool visible) { _visible = visible; UpdatePresentation(); }
     public void SetDialogVisible(bool visible) { _dialogVisible = visible; UpdatePresentation(); }
@@ -107,7 +125,7 @@ public sealed partial class TerminalSessionsPage : Page
         finally
         {
             if (_controls.Remove(tab, out var control)) TerminalHosts.Children.Remove(control);
-            _localRequests.Remove(tab); UpdatePresentation();
+            _localRequests.Remove(tab); _dockerRequests.Remove(tab); UpdatePresentation();
         }
     }
     private async Task RunActionAsync(Func<Task> action, bool closingOwners = false)
@@ -139,12 +157,13 @@ public sealed partial class TerminalSessionsPage : Page
     {
         if (ViewModel.SelectedTab is not { } tab) return;
         _localRequests.TryGetValue(tab, out var local);
+        _dockerRequests.TryGetValue(tab, out var docker);
         await RunActionAsync(async () =>
         {
             await CloseTabAsync(tab);
             if (_closing) return;
             if (tab.Profile is { } profile) await ViewModel.ValidateSavedProfileAsync(profile, _stop.Token);
-            await OpenAsync(tab.Title, tab.Profile, local);
+            await OpenAsync(tab.Title, tab.Profile, local, docker);
         });
     }
     private async void Copy_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
@@ -170,7 +189,7 @@ public sealed partial class TerminalSessionsPage : Page
     {
         try { await ViewModel.DisposeAsync(); } catch (Exception error) { _shutdownFailures.Add(error); }
         await Task.WhenAll(_actions.ToArray());
-        TerminalHosts.Children.Clear(); _controls.Clear(); _localRequests.Clear();
+        TerminalHosts.Children.Clear(); _controls.Clear(); _localRequests.Clear(); _dockerRequests.Clear();
         _job.Dispose(); _stop.Dispose();
         if (_shutdownFailures.Count != 0) throw new AggregateException("终端页面清理失败。", _shutdownFailures);
     }
