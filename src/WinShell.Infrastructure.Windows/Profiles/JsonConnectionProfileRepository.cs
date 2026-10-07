@@ -19,7 +19,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
     private static readonly HashSet<string> ProfileProperties =
     [
         "id", "displayName", "protocol", "host", "port", "userName", "groupName",
-        "authenticationMethod", "privateKeyPath", "credentialReference"
+        "authenticationMethod", "privateKeyPath", "credentialReference", "ftpsMode"
     ];
     private readonly string _configurationDirectory;
     // WaitHandle is never requested: this gate has only managed state and no native handle.
@@ -224,10 +224,10 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
                 foreach (var element in profilesElement.EnumerateArray())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    ValidateProperties(element, ProfileProperties);
+                    ValidateProperties(element, ProfileProperties, "ftpsMode");
                     var profile = element.Deserialize<ConnectionProfile>(JsonOptions) ??
                         throw new InvalidDataException("连接配置不能为 null。");
-                    if (!Enum.IsDefined(profile.Protocol) || !Enum.IsDefined(profile.AuthenticationMethod))
+                    if (!Enum.IsDefined(profile.Protocol) || !Enum.IsDefined(profile.AuthenticationMethod) || !Enum.IsDefined(profile.FtpsMode))
                     {
                         throw new NotSupportedException("配置包含当前版本不支持的协议或认证方式。");
                     }
@@ -247,7 +247,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
         }
     }
 
-    private static void ValidateProperties(JsonElement element, HashSet<string> supportedProperties)
+    private static void ValidateProperties(JsonElement element, HashSet<string> supportedProperties, string? optionalProperty = null)
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
@@ -265,7 +265,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
                 throw new InvalidDataException("配置含有重复的 JSON 字段。");
             }
         }
-        if (names.Count != supportedProperties.Count)
+        if (names.Count != supportedProperties.Count - (optionalProperty is not null && !names.Contains(optionalProperty) ? 1 : 0))
         {
             throw new InvalidDataException("配置缺少必需字段。");
         }
