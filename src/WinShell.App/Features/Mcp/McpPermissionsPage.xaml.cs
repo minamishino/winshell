@@ -21,8 +21,8 @@ public sealed partial class McpPermissionsPage : Page
     private async void Revoke_Click(object sender, RoutedEventArgs args) => await ExecuteAsync(ViewModel.RevokeAllAsync);
     private async void Save_Click(object sender, RoutedEventArgs args) => await ExecuteAsync(async () =>
     {
-        if (ViewModel.Profiles.Any(row => row.RunScript) && !await _dialogs.ConfirmAsync(XamlRoot,
-            "允许 AI 执行远端脚本？", "任意 Shell 脚本可以修改或删除所选 SSH 账户有权访问的数据。仅向你信任的本地 MCP 调用方授予此权限。", "保存授权", _lifetime.Token)) return;
+        if (ViewModel.Profiles.Any(row => row.RunScript || row.DockerRead || row.DockerControl || row.DockerExec) && !await _dialogs.ConfirmAsync(XamlRoot,
+            "保存 AI 远端操作授权？", "Docker 授权覆盖所选 SSH 主机的全部容器：读取权限可能暴露日志中的敏感信息；控制权限可以启停或重启容器；执行权限允许容器内任意远端命令，可能通过主机挂载影响主机数据。任意 Shell 脚本权限本身也可调用 Docker，不受 Docker 工具权限限制。仅向你信任的本地 MCP 调用方授予所选权限。", "保存授权", _lifetime.Token)) return;
         if (!_closing) await ViewModel.SaveAsync();
     });
     private Task ExecuteAsync(Func<Task> operation)
