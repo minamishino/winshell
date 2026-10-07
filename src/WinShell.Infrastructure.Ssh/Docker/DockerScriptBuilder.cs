@@ -11,6 +11,17 @@ public static class DockerScriptBuilder
     private const string ContainerFormat = "{\"ID\":{{json .ID}},\"Names\":{{json .Names}},\"Image\":{{json .Image}},\"State\":{{json .State}},\"Status\":{{json .Status}},\"Ports\":{{json .Ports}}}";
     public static string List() => Finish("container ls --all --last 32 --no-trunc --format " + Quote(ContainerFormat));
     public static string Logs(string containerId) => Finish("container logs --tail 200 " + Identifier(containerId));
+    public static string Terminal(string containerId, DockerTerminalShell shell)
+    {
+        var identifier = Identifier(containerId);
+        var executable = shell switch
+        {
+            DockerTerminalShell.Sh => "/bin/sh",
+            DockerTerminalShell.Bash => "/bin/bash",
+            _ => throw new DockerException(DockerFailureKind.InvalidInput, "请选择 /bin/sh 或 /bin/bash。")
+        };
+        return Finish("container exec --interactive --tty " + identifier + " " + Quote(executable));
+    }
     public static string Change(string containerId, DockerContainerAction action)
     {
         var verb = action switch
