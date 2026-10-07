@@ -54,7 +54,9 @@ public partial class App : Application
             builder.Services.AddSingleton<ConnectionProfilesPage>();
             builder.Services.AddSingleton<IKnownHostRepository>(_ => new JsonKnownHostRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<ConnectionAdmissionBudget>();
-            builder.Services.AddSingleton<ISftpSessionFactory, SftpSessionFactory>();
+            builder.Services.AddSingleton<SftpSessionFactory>();
+            builder.Services.AddSingleton<WinShell.Infrastructure.Ftp.FtpSessionFactory>();
+            builder.Services.AddSingleton<IRemoteFileSessionFactory, RemoteFileSessionFactory>();
             builder.Services.AddSingleton<FilesPage>();
             builder.Services.AddSingleton<TunnelAdmissionBudget>();
             builder.Services.AddSingleton<ITunnelFactory, TunnelSessionFactory>();

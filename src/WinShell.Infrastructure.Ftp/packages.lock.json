@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "FluentFTP": {
+        "type": "Direct",
+        "requested": "[55.0.0, )",
+        "resolved": "55.0.0",
+        "contentHash": "5ufTSEjrItvSsPWz5IZ7OTilYu42YM9fGQbogrJZsvCrKat/tz+sWHCDt0/izVvi8ZYfy3G9bZR8D9goyJ9BuA=="
+      },
+      "winshell.core": {
+        "type": "Project"
+      }
+    }
+  }
+}

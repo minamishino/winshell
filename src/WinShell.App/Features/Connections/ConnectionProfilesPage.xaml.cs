@@ -100,10 +100,12 @@ public sealed partial class ConnectionProfilesPage : Page
             {
                 AuthenticationMethod.Password => PasswordAuthenticationItem,
                 AuthenticationMethod.PrivateKey => PrivateKeyAuthenticationItem,
+                AuthenticationMethod.Anonymous => AnonymousAuthenticationItem,
                 _ => null
             };
         }
         finally { _updatingSelectors = false; }
+        UpdateProtocolControls();
         _savedProfileId = profile?.Id;
         EditorHeading.Text = profile is null ? "新建连接" : "编辑连接";
         DeleteProfileButton.IsEnabled = SaveCredentialButton.IsEnabled = CheckCredentialButton.IsEnabled = DeleteCredentialButton.IsEnabled = profile is not null;
@@ -114,12 +116,26 @@ public sealed partial class ConnectionProfilesPage : Page
         if (ReferenceEquals(ProtocolBox.SelectedItem, SshProtocolItem)) _editor.Protocol = ConnectionProtocol.Ssh;
         else if (ReferenceEquals(ProtocolBox.SelectedItem, FtpProtocolItem)) _editor.Protocol = ConnectionProtocol.Ftp;
         else if (ReferenceEquals(ProtocolBox.SelectedItem, FtpsProtocolItem)) _editor.Protocol = ConnectionProtocol.Ftps;
+        UpdateProtocolControls();
     }
     private void AuthenticationBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_closing || _updatingSelectors || !ViewModel.CanEdit) return;
         if (ReferenceEquals(AuthenticationBox.SelectedItem, PasswordAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.Password;
         else if (ReferenceEquals(AuthenticationBox.SelectedItem, PrivateKeyAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.PrivateKey;
+        else if (ReferenceEquals(AuthenticationBox.SelectedItem, AnonymousAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.Anonymous;
+    }
+    private void UpdateProtocolControls()
+    {
+        FtpsModeBox.Visibility = _editor.Protocol == ConnectionProtocol.Ftps ? Visibility.Visible : Visibility.Collapsed;
+        FtpsModeBox.SelectedItem = _editor.FtpsMode == FtpsMode.Implicit ? ImplicitFtpsItem : ExplicitFtpsItem;
+        AnonymousAuthenticationItem.IsEnabled = _editor.Protocol != ConnectionProtocol.Ssh;
+        PrivateKeyAuthenticationItem.IsEnabled = _editor.Protocol == ConnectionProtocol.Ssh;
+    }
+    private void FtpsModeBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_closing || _updatingSelectors || !ViewModel.CanEdit) return;
+        _editor.FtpsMode = ReferenceEquals(FtpsModeBox.SelectedItem, ImplicitFtpsItem) ? FtpsMode.Implicit : FtpsMode.Explicit;
     }
     private void NewProfile_Click(object sender, RoutedEventArgs args)
     {
@@ -161,7 +177,7 @@ public sealed partial class ConnectionProfilesPage : Page
         if (ViewModel.SelectedProfile is not { } profile)
             ViewModel.ReportValidationError("请先从列表选择一个已保存的 SSH 配置。");
         else if (profile.Protocol != ConnectionProtocol.Ssh)
-            ViewModel.ReportValidationError("连接 SSH 仅支持 SSH 配置，FTP / FTPS 尚未接入。");
+            ViewModel.ReportValidationError("连接 SSH 仅支持 SSH 配置，FTP / FTPS 请使用远端文件页。");
         else ConnectSshRequested?.Invoke(this, profile);
     }
     private async void DeleteProfile_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>

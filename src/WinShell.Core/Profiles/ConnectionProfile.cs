@@ -10,4 +10,5 @@ public sealed record ConnectionProfile(
     string GroupName,
     AuthenticationMethod AuthenticationMethod,
     string? PrivateKeyPath,
-    string? CredentialReference);
+    string? CredentialReference,
+    FtpsMode FtpsMode = FtpsMode.Explicit);

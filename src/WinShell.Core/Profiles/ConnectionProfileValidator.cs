@@ -69,6 +69,21 @@ public static class ConnectionProfileValidator
             errors.Add(new(nameof(profile.CredentialReference), "凭据引用必须与此连接的标识匹配。"));
         }
 
+        if (profile.Protocol is ConnectionProtocol.Ftp or ConnectionProtocol.Ftps)
+        {
+            foreach (var (name, value) in new[] { (nameof(profile.Host), profile.Host), (nameof(profile.UserName), profile.UserName) })
+            {
+                try
+                {
+                    if (value is null || value.Any(char.IsControl)) throw new ArgumentException();
+                    _ = new System.Text.UTF8Encoding(false, true).GetByteCount(value);
+                }
+                catch (ArgumentException) { errors.Add(new(name, "FTP 字段不能包含控制字符或无效 Unicode。")); }
+            }
+        }
+        if (profile.AuthenticationMethod == AuthenticationMethod.Anonymous && profile.Protocol == ConnectionProtocol.Ssh)
+            errors.Add(new(nameof(profile.AuthenticationMethod), "SSH 不支持匿名认证。"));
+        if (!Enum.IsDefined(profile.FtpsMode)) errors.Add(new(nameof(profile.FtpsMode), "不支持此 FTPS 模式。"));
         return errors;
     }
 }

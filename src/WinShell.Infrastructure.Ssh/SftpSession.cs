@@ -10,7 +10,7 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 namespace WinShell.Infrastructure.Ssh;
 
 // One operation per client; close cancels and joins its core before disconnecting the subsystem.
-internal sealed class SftpSession : ISftpSession
+internal sealed class SftpSession : IRemoteFileSession
 {
     private readonly SftpClient _client;
     private readonly SshHostKeyPolicy _policy;
@@ -25,7 +25,7 @@ internal sealed class SftpSession : ISftpSession
         _client = client; _policy = policy; _budget = budget; _admission = admission;
         _watch = WatchAsync();
     }
-    public bool IsConnected { get { lock (_gate) return _close is null && _client.IsConnected; } }
+    public bool IsReady { get { lock (_gate) return _close is null && _client.IsConnected; } }
     public Task<RemoteDirectoryPage> ListDirectoryAsync(string path, CancellationToken cancellationToken)
     {
         SftpPathPolicy.RemotePath(path);
