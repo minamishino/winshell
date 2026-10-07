@@ -26,7 +26,8 @@ internal sealed class NativeTerminalPresenter : Grid, IDisposable
         if (_host is null || XamlRoot is null) return;
         var origin = TransformToVisual(null).TransformPoint(new(0, 0));
         var scale = XamlRoot.RasterizationScale;
-        if (!SetWindowPos(Window, 0, (int)Math.Round(origin.X * scale), (int)Math.Round(origin.Y * scale), (int)Math.Max(16, ActualWidth * scale), (int)Math.Max(32, ActualHeight * scale), 0x14)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        // Keep this owned child above the covering WinUI site without activating the window.
+        if (!SetWindowPos(Window, 0, (int)Math.Round(origin.X * scale), (int)Math.Round(origin.Y * scale), (int)Math.Max(16, ActualWidth * scale), (int)Math.Max(32, ActualHeight * scale), 0x10)) throw new Win32Exception(Marshal.GetLastWin32Error());
     }
     public void Dispose()
     {
