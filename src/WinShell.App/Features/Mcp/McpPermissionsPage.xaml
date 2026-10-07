@@ -14,10 +14,14 @@
    <ListView.ItemTemplate><DataTemplate>
     <StackPanel Spacing="6" Padding="8">
      <TextBlock Text="{Binding Name}" Style="{ThemeResource SubtitleTextBlockStyle}"/>
+     <TextBlock Text="配置标识"/><TextBlock Text="{Binding ProfileIdentifier}" IsTextSelectionEnabled="True" AutomationProperties.Name="配置标识"/>
      <TextBlock Text="{Binding Target}" TextWrapping="Wrap"/>
      <TextBlock Text="{Binding KeyDescription}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
      <CheckBox IsEnabled="{Binding CanGrant}" Content="允许列出配置名称和标识" IsChecked="{Binding ListProfiles, Mode=TwoWay}" AutomationProperties.Name="{Binding MetadataLabel}"/>
      <CheckBox IsEnabled="{Binding CanGrant}" Content="允许执行任意 Shell 脚本" IsChecked="{Binding RunScript, Mode=TwoWay}" AutomationProperties.Name="{Binding ScriptLabel}"/>
+     <CheckBox IsEnabled="{Binding CanGrant}" Content="允许读取 Docker 容器和日志" IsChecked="{Binding DockerRead, Mode=TwoWay}" AutomationProperties.Name="{Binding DockerReadLabel}"/>
+     <CheckBox IsEnabled="{Binding CanGrant}" Content="允许启停和重启 Docker 容器" IsChecked="{Binding DockerControl, Mode=TwoWay}" AutomationProperties.Name="{Binding DockerControlLabel}"/>
+     <CheckBox IsEnabled="{Binding CanGrant}" Content="允许在 Docker 容器执行任意命令" IsChecked="{Binding DockerExec, Mode=TwoWay}" AutomationProperties.Name="{Binding DockerExecLabel}"/>
     </StackPanel>
    </DataTemplate></ListView.ItemTemplate>
   </ListView>

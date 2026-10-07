@@ -1,6 +1,8 @@
 using WinShell.Infrastructure.Windows.Profiles;
 using WinShell.Mcp;
 using WinShell.Core.Mcp;
+using WinShell.Core.Profiles;
+using WinShell.Infrastructure.Ssh.Docker;
 using WinShell.Core.Ssh;
 using WinShell.Core.Connections;
 using WinShell.Infrastructure.Ssh;
@@ -18,7 +20,8 @@ try
     var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinShell");
     var reader = new McpPermissionReader(new JsonMcpGrantRepository(root), new JsonConnectionProfileRepository(root), new JsonKnownHostRepository(root));
     var connectionBudget = new ConnectionAdmissionBudget();
-    var tools = new McpToolService(reader, authorized => new SshSessionFactory(new GrantedKnownHosts(authorized), new WindowsCredentialStore(), connectionBudget));
+    var tools = new McpToolService(reader, authorized => new SshSessionFactory(new GrantedKnownHosts(authorized), new WindowsCredentialStore(), connectionBudget),
+        authorized => new DockerService(new SshSessionFactory(new GrantedKnownHosts(authorized), new WindowsCredentialStore(), connectionBudget), new AuthorizedProfileRepository(authorized)));
     await using var host = new McpServerHost(input, output, tools);
     await host.RunAsync();
     await host.CloseAsync();
@@ -54,4 +57,16 @@ internal sealed class GrantedKnownHosts(McpAuthorizedProfile authorized) : IKnow
         return Task.FromResult<SshHostKey?>(authorized.HostKey);
     }
     public Task<bool> TrustIfAbsentOrSameAsync(SshEndpointIdentity endpoint, SshHostKey key, CancellationToken token) => throw new NotSupportedException();
+}
+
+// DockerService rereads this immutable per-call snapshot; later requests still use the original fresh repositories.
+internal sealed class AuthorizedProfileRepository(McpAuthorizedProfile authorized) : IConnectionProfileRepository
+{
+    public Task<ProfileReadResult> ReadAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        return Task.FromResult(new ProfileReadResult([authorized.Profile], false));
+    }
+    public Task UpsertAsync(ConnectionProfile profile, CancellationToken token) => throw new NotSupportedException();
+    public Task<bool> DeleteAsync(Guid id, CancellationToken token) => throw new NotSupportedException();
 }
