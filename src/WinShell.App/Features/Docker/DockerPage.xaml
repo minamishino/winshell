@@ -3,14 +3,16 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:docker="using:WinShell.Core.Docker"
       Loaded="Page_Loaded">
-    <Grid Padding="20" RowSpacing="10">
+    <Grid Padding="16" RowSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Text="远程 Docker · 最近 32 个容器" Style="{ThemeResource TitleTextBlockStyle}"/>
-        <TextBlock Grid.Row="1" Text="仅支持 Linux / POSIX。服务器需已安装 Docker CLI，SSH 账号需有 /var/run/docker.sock 权限。" TextWrapping="Wrap"/>
+        <TextBlock Text="Docker" Style="{ThemeResource SubtitleTextBlockStyle}" ToolTipService.ToolTip="显示最近 32 个容器"/>
+        <Expander Grid.Row="1" Header="服务器要求" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <TextBlock Text="仅支持 Linux / POSIX。服务器需已安装 Docker CLI，SSH 账号需有 /var/run/docker.sock 权限。" TextWrapping="Wrap"/>
+        </Expander>
         <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <ComboBox x:Name="ProfilesSelector" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}" DisplayMemberPath="DisplayName"
@@ -32,13 +34,13 @@
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
-        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
-            <Button Content="启动" Click="Start_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="启动选中容器"/>
-            <Button Content="停止" Click="Stop_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="确认停止选中容器"/>
-            <Button Content="重启" Click="Restart_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="确认重启选中容器"/>
-            <Button Content="最近 200 行日志" Click="Logs_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="读取选中容器最近 200 行日志"/>
-            <Button Content="取消" Click="Cancel_Click" IsEnabled="{Binding IsBusy}" AutomationProperties.Name="取消当前 Docker 操作并等待关闭"/>
-        </StackPanel>
+        <CommandBar Grid.Row="4" DefaultLabelPosition="Right" AutomationProperties.Name="容器操作">
+            <AppBarButton Icon="Play" Label="启动" Click="Start_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="启动选中容器"/>
+            <AppBarButton Icon="Stop" Label="停止" Click="Stop_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="确认停止选中容器"/>
+            <AppBarButton Icon="Refresh" Label="重启" Click="Restart_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="确认重启选中容器"/>
+            <AppBarButton Icon="Document" Label="日志" Click="Logs_Click" IsEnabled="{Binding CanAct}" AutomationProperties.Name="读取选中容器最近 200 行日志"/>
+            <AppBarButton Icon="Cancel" Label="取消" Click="Cancel_Click" IsEnabled="{Binding IsBusy}" AutomationProperties.Name="取消当前 Docker 操作并等待关闭"/>
+        </CommandBar>
         <Grid Grid.Row="5" ColumnSpacing="8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBox Text="{Binding CommandText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Header="一次性容器命令（/bin/sh -c，最多 4096 UTF-8 字节）"
