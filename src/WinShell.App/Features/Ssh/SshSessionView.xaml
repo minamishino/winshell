@@ -2,8 +2,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="16" Padding="24">
-            <TextBlock Text="连接快照目标" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
+        <StackPanel Spacing="16" Padding="{StaticResource WinShellPagePadding}">
+            <TextBlock Text="连接快照目标" Style="{StaticResource WinShellSectionTitleStyle}"/>
             <TextBlock Text="{Binding Target}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.Name="SSH 连接快照目标"/>
             <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
             <TextBlock Text="{Binding HostKeyDescription}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.Name="SSH 主机公钥类型和完整 SHA256 指纹"/>
