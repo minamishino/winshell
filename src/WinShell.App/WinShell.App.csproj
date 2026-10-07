@@ -56,4 +56,24 @@
       <ResolvedFileToPublish Include="@(McpFilesToPublish)" RelativePath="Mcp/%(McpFilesToPublish.RecursiveDir)%(McpFilesToPublish.Filename)%(McpFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
+  <Target Name="IncludeTerminalRuntimeInPublish" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <TerminalRequiredPublishFiles Include="$(OutDir)Terminal/WinShell.Terminal.NativeHost.exe;$(OutDir)Terminal/WinShell.Terminal.NativeHost.dll;$(OutDir)Terminal/WinShell.Terminal.NativeHost.deps.json;$(OutDir)Terminal/WinShell.Terminal.NativeHost.runtimeconfig.json;$(OutDir)Terminal/Microsoft.Terminal.Control.dll;$(OutDir)Terminal/Microsoft.Windows.SDK.NET.dll;$(OutDir)Terminal/WinRT.Runtime.dll;$(OutDir)Terminal/StableNativeEngine.json;$(OutDir)Terminal/ThirdPartyNotices.txt;$(OutDir)Terminal/NOTICE.html" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(TerminalRequiredPublishFiles.Identity)')" Text="Missing required terminal publish asset: %(TerminalRequiredPublishFiles.Identity). Build the complete App before publishing." />
+    <ItemGroup>
+      <TerminalFilesToPublish Include="$(OutDir)Terminal/**/*" />
+      <ResolvedFileToPublish Include="@(TerminalFilesToPublish)" RelativePath="Terminal/%(TerminalFilesToPublish.RecursiveDir)%(TerminalFilesToPublish.Filename)%(TerminalFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+  <Target Name="IncludePortablePowerShellInPublish" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <PowerShellRequiredPublishFiles Include="$(OutDir)PowerShell/7.6.6/pwsh.exe;$(OutDir)PowerShell/7.6.6/pwsh.dll;$(OutDir)PowerShell/7.6.6/pwsh.deps.json;$(OutDir)PowerShell/7.6.6/pwsh.runtimeconfig.json;$(OutDir)PowerShell/7.6.6/LICENSE.txt;$(OutDir)PowerShell/7.6.6/ThirdPartyNotices.txt" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(PowerShellRequiredPublishFiles.Identity)')" Text="Missing required PowerShell publish asset: %(PowerShellRequiredPublishFiles.Identity). Build the complete App before publishing." />
+    <ItemGroup>
+      <PowerShellFilesToPublish Include="$(OutDir)PowerShell/7.6.6/**/*" />
+      <ResolvedFileToPublish Include="@(PowerShellFilesToPublish)" RelativePath="PowerShell/7.6.6/%(PowerShellFilesToPublish.RecursiveDir)%(PowerShellFilesToPublish.Filename)%(PowerShellFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>
