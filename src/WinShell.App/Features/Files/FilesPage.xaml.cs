@@ -35,13 +35,14 @@ public sealed partial class FilesPage : Page
         _dialogs.ConfirmAsync(XamlRoot, "确认 SFTP 主机公钥", $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证。请通过可信渠道核实指纹，再选择信任并连接。", "信任并连接", token);
     private Task<bool> ConfirmPlaintextAsync(ConnectionProfile profile, CancellationToken token) =>
         _dialogs.ConfirmAsync(XamlRoot, "确认 FTP 明文传输", $"主机：{profile.Host}:{profile.Port}\n用户名：{profile.UserName}\n\nFTP 会以明文传输密码、目录和文件。只有确认此风险后才会读取凭据并连接。", "接受明文并连接", token);
-    public Task LoadProfilesAsync() => RunAsync(async () =>
+    public Task LoadProfilesAsync(Guid? preferredProfileId = null) => RunAsync(async () =>
     {
         if (!ViewModel.CanConnect) return;
+        var selectedId = preferredProfileId ?? (Profiles.SelectedItem as ConnectionProfile)?.Id;
         var saved = await _profiles.ReadAsync(_stop.Token);
         _stop.Token.ThrowIfCancellationRequested();
         Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol is ConnectionProtocol.Ssh or ConnectionProtocol.Ftp or ConnectionProtocol.Ftps).ToArray();
-        Profiles.SelectedIndex = Profiles.Items.Count == 0 ? -1 : 0;
+        Profiles.SelectedItem = Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault(profile => profile.Id == selectedId) ?? Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault();
         Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH、FTP 或 FTPS 配置。" : "";
     });
     private async void Reload_Click(object sender, RoutedEventArgs args) => await LoadProfilesAsync();
