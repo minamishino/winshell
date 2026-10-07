@@ -198,14 +198,15 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
 
     public ValueTask DisposeAsync() => new(BeginClose(null));
 
-    public WinShell.Core.Terminal.IShellSession CreateTerminalSession(ushort columns, ushort rows)
+    public WinShell.Core.Terminal.IShellSession CreateTerminalSession(ushort columns, ushort rows, string? startupCommand = null)
     {
         SshTerminalSession.ValidateSize(columns, rows);
+        SshTerminalSession.ValidateStartupCommand(startupCommand);
         lock (_closeLock)
         {
             if (_terminal is not null || _tunnel is not null || _scriptCore is not null || _closeTask is not null || !_client.IsConnected)
                 throw new InvalidOperationException("SSH 连接只能用于一次脚本、终端或隧道。");
-            return _terminal = new(_client, columns, rows, BeginClose);
+            return _terminal = new(_client, columns, rows, BeginClose, startupCommand);
         }
     }
 
