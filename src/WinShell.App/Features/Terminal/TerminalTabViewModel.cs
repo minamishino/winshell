@@ -9,11 +9,12 @@ namespace WinShell.App.Features.Terminal;
 public sealed class TerminalTabViewModel(string title, ConnectionProfile? profile,
     Func<CancellationToken, Task<IShellSession>> createBackend,
     Func<IShellSession, CancellationToken, Task> startView, Func<Task> outputCompletion,
-    Func<Task> closeView) : ObservableObject, IAsyncDisposable
+    Func<Task> closeView, string targetDescription = "") : ObservableObject, IAsyncDisposable
 {
     private readonly CancellationTokenSource _stop = new();
     private IShellSession? _backend;
     private Task? _operation, _close;
+    private readonly TaskCompletionSource<bool> _startupSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _closing;
     private string _status = "等待启动。";
     private Exception? _failure;
@@ -22,16 +23,19 @@ public sealed class TerminalTabViewModel(string title, ConnectionProfile? profil
     private string _diagnosticText = "";
     public Guid Id { get; } = Guid.NewGuid();
     public string Title { get; } = title;
+    public string TargetDescription { get; } = targetDescription;
     public ConnectionProfile? Profile { get; } = profile;
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
     public string DiagnosticText { get => _diagnosticText; private set => SetProperty(ref _diagnosticText, value); }
     public bool IsRunning { get; private set; }
     public Exception? Failure => _failure;
     public bool IsClosing => _closing;
-    public Task StartAsync()
+    public Task<bool> StartupSettled => _startupSettled.Task;
+    public Task StartAsync() => StartAsync(default);
+    public Task StartAsync(CancellationToken startupCancellation)
     {
         if (_operation is not null) return _operation;
-        if (_closing) return Task.CompletedTask;
+        if (_closing) { _startupSettled.TrySetResult(false); return Task.CompletedTask; }
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _operation = completion.Task;
         _ = RunAsync();
@@ -40,14 +44,19 @@ public sealed class TerminalTabViewModel(string title, ConnectionProfile? profil
         {
             try
             {
-                Status = "正在连接终端…";
-                _backend = await createBackend(_stop.Token);
-                _backend = _diagnostic = new TerminalDiagnosticSession(_backend);
-                _stop.Token.ThrowIfCancellationRequested();
-                await startView(_backend, _stop.Token);
+                // External selection/navigation cancellation owns startup only. Detach before success.
+                using (startupCancellation.Register(_stop.Cancel))
+                {
+                    Status = "正在连接终端…";
+                    _backend = await createBackend(_stop.Token);
+                    _backend = _diagnostic = new TerminalDiagnosticSession(_backend);
+                    _stop.Token.ThrowIfCancellationRequested();
+                    await startView(_backend, _stop.Token);
+                }
                 _stop.Token.ThrowIfCancellationRequested();
                 IsRunning = true; OnPropertyChanged(nameof(IsRunning));
                 Status = "终端已连接。";
+                _startupSettled.TrySetResult(true);
                 await outputCompletion();
                 await _backend.OutputCompletion;
                 if (_diagnostic.Result is { } result) await result.ProcessCompletion;
@@ -62,6 +71,7 @@ public sealed class TerminalTabViewModel(string title, ConnectionProfile? profil
             catch (Exception error) { RecordFailure(error); }
             finally
             {
+                _startupSettled.TrySetResult(false);
                 IsRunning = false; OnPropertyChanged(nameof(IsRunning));
                 completion.TrySetResult();
             }
@@ -83,6 +93,7 @@ public sealed class TerminalTabViewModel(string title, ConnectionProfile? profil
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _close = completion.Task;
         _stop.Cancel();
+        if (_operation is null) _startupSettled.TrySetResult(false);
         if (_failure is null && _endedStatus is null) Status = "正在关闭并等待终端资源释放…";
         _ = CloseCoreAsync();
         return _close;
