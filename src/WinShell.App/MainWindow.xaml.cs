@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
         _workspace = workspace;
         _sshPage = sshPage;
         _terminalPage = terminalPage;
+        _connectionsPage.ViewModel.BeginTerminalProfileMutationAsync = _terminalPage.BeginProfileMutationAsync;
         _dialogs = dialogs;
         _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
         _filesPage = filesPage;
