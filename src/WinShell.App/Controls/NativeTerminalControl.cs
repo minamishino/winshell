@@ -117,26 +117,37 @@ public sealed class NativeTerminalControl : UserControl
         try { await start; }
         catch (Exception initial)
         {
+            var cause = Failure ?? initial;
             try { await CloseAsync(CancellationToken.None); }
-            catch (Exception cleanup) { throw new AggregateException(initial, cleanup); }
-            throw;
+            catch (Exception cleanup) { throw new AggregateException(cause, cleanup); }
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cause).Throw();
         }
     }
     private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
+        // Publish _start before a synchronously completed failure can request Close.
+        await Task.Yield();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stop.Token);
         await StartRendererAsync(linked.Token);
+        _failureObserver = ObserveRendererFailureAsync();
         await _session!.StartAsync(linked.Token);
         await _renderer.SetFocusedAsync(false, linked.Token);
         _running = true;
         QueuePresentation();
         _output = CopyOutputAsync();
-        _failureObserver = ObserveFailureAsync();
     }
     private async Task CopyOutputAsync()
     {
-        await _session!.Output.CopyToAsync(new RendererDestination(_renderer), _stop.Token);
-        await _renderer.CompleteOutputAsync(_stop.Token);
+        try
+        {
+            await _session!.Output.CopyToAsync(new RendererDestination(_renderer), _stop.Token);
+            await _renderer.CompleteOutputAsync(_stop.Token);
+        }
+        catch (Exception error)
+        {
+            if (!_stop.IsCancellationRequested) HandleFailure(error);
+            throw;
+        }
     }
     private void QueuePresentation(bool? visible = null)
     {
@@ -167,13 +178,11 @@ public sealed class NativeTerminalControl : UserControl
         catch (Exception error) when (_stop.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException) { }
         catch (Exception error) { HandleFailure(error); }
     }
-    private async Task ObserveFailureAsync()
+    private async Task ObserveRendererFailureAsync()
     {
         try
         {
-            var completed = await Task.WhenAny(_renderer.FailureCompletion, _output!);
-            if (completed == _output) await _output!;
-            // Keep watching the renderer after ordinary backend EOF while the view remains open.
+            // Independent of pending backend Start/output creation, and still active after normal EOF.
             var failure = await _renderer.FailureCompletion.WaitAsync(_stop.Token);
             HandleFailure(failure);
         }
@@ -197,7 +206,17 @@ public sealed class NativeTerminalControl : UserControl
     {
         if (_close is not null) return _close;
         cancellationToken.ThrowIfCancellationRequested();
-        return _close = CloseCoreAsync();
+        // Publish before synchronous cancellation callbacks can reenter, without deferring cancellation.
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _close = completion.Task;
+        _ = CompleteCloseAsync(completion);
+        return _close;
+    }
+    private async Task CompleteCloseAsync(TaskCompletionSource completion)
+    {
+        try { await CloseCoreAsync(); completion.TrySetResult(); }
+        catch (OperationCanceledException error) { completion.TrySetCanceled(error.CancellationToken); }
+        catch (Exception error) { completion.TrySetException(error); }
     }
     private async Task CloseCoreAsync()
     {
