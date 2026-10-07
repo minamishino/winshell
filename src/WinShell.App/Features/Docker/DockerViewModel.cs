@@ -18,6 +18,20 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     private int _generation;
     private CancellationTokenSource? _operationCancellation;
     private Task _pending = Task.CompletedTask;
+    private DockerTerminalShell _selectedShell;
+    private bool _terminalCapacityAvailable = true;
+    public IReadOnlyList<DockerTerminalShell> TerminalShells { get; } = [DockerTerminalShell.Sh, DockerTerminalShell.Bash];
+    public DockerTerminalShell SelectedShell
+    {
+        get => _selectedShell;
+        set { if (SetProperty(ref _selectedShell, value)) InvalidateSelection(); }
+    }
+    public bool TerminalCapacityAvailable
+    {
+        get => _terminalCapacityAvailable;
+        set { if (SetProperty(ref _terminalCapacityAvailable, value)) OnPropertyChanged(nameof(CanOpenTerminal)); }
+    }
+    public bool CanOpenTerminal => CanAct && TerminalCapacityAvailable && SelectedProfile is not null && SelectedContainer is not null && Containers.Any(item => ReferenceEquals(item, SelectedContainer));
     public ConnectionProfile? SelectedProfile
     {
         get => _selectedProfile;
@@ -34,7 +48,7 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     }
     private void InvalidateSelection()
     {
-        _generation++; Cancel(); Output = ""; Status = "目标已变更，请验证或刷新。";
+        _generation++; Cancel(); Output = ""; Status = "目标已变更，请验证或刷新。"; OnPropertyChanged(nameof(CanOpenTerminal));
     }
     public string CommandText { get => _commandText; set => SetProperty(ref _commandText, value); }
     public string Output { get => _output; private set => SetProperty(ref _output, value); }
@@ -42,7 +56,7 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     public bool IsBusy
     {
         get => _isBusy;
-        private set { if (SetProperty(ref _isBusy, value)) OnPropertyChanged(nameof(CanAct)); }
+        private set { if (SetProperty(ref _isBusy, value)) { OnPropertyChanged(nameof(CanAct)); OnPropertyChanged(nameof(CanOpenTerminal)); } }
     }
     public bool CanAct => !IsBusy && !_disposed;
     public Task LoadProfilesAsync() => OwnAsync(async (generation, token) =>
@@ -83,6 +97,20 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
         });
     }
     public Task LogsAsync() => WithContainerAsync(false, "", (profile, container, token) => service.GetContainerLogsAsync(profile, container.Id, token));
+    public Task OpenTerminalAsync(Func<DockerTerminalRequest, CancellationToken, Task<bool>> dispatch)
+    {
+        var profile = SelectedProfile; var container = SelectedContainer; var shell = SelectedShell;
+        return OwnAsync(async (generation, token) =>
+        {
+            if (profile is null || container is null || !Containers.Any(item => ReferenceEquals(item, container))) { Status = "请刷新并选择容器。"; return; }
+            if (!TerminalCapacityAvailable) { Status = "终端名额已满，请先关闭一个终端并等待资源释放。"; return; }
+            var request = new DockerTerminalRequest(profile, container.Id, shell);
+            if (!Current(generation)) return;
+            var started = await dispatch(request, token);
+            if (Current(generation)) Status = started ? "容器终端已打开。关闭连接不保证容器内任务已停止。" : "终端未能启动，请查看终端标签中的诊断。";
+        });
+    }
+    public Task CancelPendingAsync() { Cancel(); return _pending; }
     public Task ChangeAsync(DockerContainerAction action) => WithContainerAsync(action != DockerContainerAction.Start,
         action == DockerContainerAction.Stop ? "停止容器" : "重启容器", (profile, container, token) => service.ChangeContainerStateAsync(profile, container.Id, action, token));
     public Task RunCommandAsync()
@@ -141,7 +169,7 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     public void Cancel() => _operationCancellation?.Cancel();
     public ValueTask DisposeAsync()
     {
-        _disposed = true; _generation++; Cancel(); OnPropertyChanged(nameof(CanAct));
+        _disposed = true; _generation++; Cancel(); OnPropertyChanged(nameof(CanAct)); OnPropertyChanged(nameof(CanOpenTerminal));
         return new(_pending);
     }
 }
