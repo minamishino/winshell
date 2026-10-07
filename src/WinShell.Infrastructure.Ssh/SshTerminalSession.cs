@@ -6,7 +6,7 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 namespace WinShell.Infrastructure.Ssh;
 
 internal sealed class SshTerminalSession(SshClient client, ushort columns, ushort rows,
-    Func<SshConnectionException?, Task> closeOwner) : IShellSession
+    Func<SshConnectionException?, Task> closeOwner) : IShellSession, IShellSessionExit
 {
     private readonly object _gate = new();
     private readonly BorrowedInputStream _input = new();
@@ -20,6 +20,8 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
     private SshConnectionException? _failure;
     public Stream Output => _output;
     public Task OutputCompletion => _monitor;
+    public Task ProcessCompletion => _monitor;
+    public int? ExitCode => ExitStatus;
     internal bool HasStarted { get { lock (_gate) return _start is not null; } }
     internal int? ExitStatus => _shell?.ExitStatus;
     internal bool RemoteClosed => _shell?.RemoteClosed ?? false;
