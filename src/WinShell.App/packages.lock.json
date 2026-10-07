@@ -417,7 +417,7 @@
         "resolved": "9.0.0",
         "contentHash": "hyJB4UlpAi19Xr9AXzu2NuagKC4lPfHObNMEAA0HmqFz2rX7wKgzeYzO/jM/eBHDhnUGFFEjk5cOoJaxqg5J4A=="
       },
-      "Renci.SshNet": {
+      "renci.sshnet": {
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
@@ -427,10 +427,17 @@
       "winshell.core": {
         "type": "Project"
       },
+      "winshell.infrastructure.ftp": {
+        "type": "Project",
+        "dependencies": {
+          "FluentFTP": "[55.0.0, )",
+          "WinShell.Core": "[1.0.0, )"
+        }
+      },
       "winshell.infrastructure.ssh": {
         "type": "Project",
         "dependencies": {
-          "Renci.SshNet": "[2026.0.0, )",
+          "Renci.SshNet": "[2026.0.0.2, )",
           "WinShell.Core": "[1.0.0, )"
         }
       },
@@ -445,6 +452,12 @@
         "requested": "[2.7.0, )",
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
+      "FluentFTP": {
+        "type": "CentralTransitive",
+        "requested": "[55.0.0, )",
+        "resolved": "55.0.0",
+        "contentHash": "5ufTSEjrItvSsPWz5IZ7OTilYu42YM9fGQbogrJZsvCrKat/tz+sWHCDt0/izVvi8ZYfy3G9bZR8D9goyJ9BuA=="
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "CentralTransitive",
