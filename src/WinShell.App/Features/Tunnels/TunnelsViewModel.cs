@@ -84,12 +84,16 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
     }
     public async Task DeleteProfileAsync(Guid profileId)
     {
-        _deletedProfiles.Add(profileId);
         await LoadAsync(_stop.Token);
-        foreach(var row in Rows.Where(value=>value.Definition.ProfileId==profileId).ToArray()) await StopAsync(row);
-        await _mutations.WaitAsync(_stop.Token);
-        try { var remaining=Rows.Where(value=>value.Definition.ProfileId!=profileId).ToArray(); await repository.ReplaceAsync(remaining.Select(row=>row.Definition).ToArray(),_stop.Token); foreach(var row in Rows.Except(remaining).ToArray()) Rows.Remove(row); }
-        finally {_mutations.Release();}
+        var affected = Rows.Where(value=>value.Definition.ProfileId==profileId).ToArray();
+        if(affected.Length==0)return;
+        _deletedProfiles.Add(profileId); // Only currently referenced definitions; no permanent deletion history.
+        try {
+            await Task.WhenAll(affected.Select(StopAsync));
+            await _mutations.WaitAsync(_stop.Token);
+            try { var remaining=Rows.Where(value=>value.Definition.ProfileId!=profileId).ToArray(); await repository.ReplaceAsync(remaining.Select(row=>row.Definition).ToArray(),_stop.Token); foreach(var row in Rows.Except(remaining).ToArray()) Rows.Remove(row); }
+            finally {_mutations.Release();}
+        } finally {_deletedProfiles.Remove(profileId);}
     }
     public void Publish() { foreach(var row in Rows) row.Publish(); }
     private static string Describe(Exception error)=>error is SshConnectionException ssh ? $"SSH 错误：{ssh.Kind}" : error is OperationCanceledException ? "操作已取消。" : "隧道操作失败，请检查参数、网络与文件权限。";
