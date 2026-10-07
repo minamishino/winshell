@@ -9,6 +9,7 @@ namespace WinShell.App.Features.Docker;
 public sealed partial class DockerPage : Page
 {
     public DockerViewModel ViewModel { get; }
+    public Func<DockerTerminalRequest, CancellationToken, Task<bool>>? OpenTerminalAsync { get; set; }
     public DockerPage(IDockerService service, IConnectionProfileRepository profiles, IKnownHostRepository knownHosts, NativeDialogService dialogs)
     {
         ViewModel = new(service, profiles, knownHosts, (title, content, token) => dialogs.ConfirmAsync(XamlRoot, title, content, "确认", token));
@@ -22,6 +23,8 @@ public sealed partial class DockerPage : Page
     private async void Restart_Click(object sender, RoutedEventArgs args) => await ViewModel.ChangeAsync(DockerContainerAction.Restart);
     private async void Logs_Click(object sender, RoutedEventArgs args) => await ViewModel.LogsAsync();
     private async void Command_Click(object sender, RoutedEventArgs args) => await ViewModel.RunCommandAsync();
+    private async void Terminal_Click(object sender, RoutedEventArgs args)
+    { if (OpenTerminalAsync is { } dispatch) await ViewModel.OpenTerminalAsync(dispatch); }
     private void Cancel_Click(object sender, RoutedEventArgs args) => ViewModel.Cancel();
     public Task BeginShutdownAsync() => ViewModel.DisposeAsync().AsTask();
 }
