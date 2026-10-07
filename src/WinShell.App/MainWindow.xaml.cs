@@ -69,14 +69,15 @@ public sealed partial class MainWindow : Window
         await _sshPage.ConnectSavedProfileAsync(profile);
     }
 
-    private void Connections_ProfileDeleted(object? sender, Guid profileId)
+    private async void Connections_ProfileDeleted(object? sender, Guid profileId)
     {
         if (_closing) return;
         _ = _sshPage.CloseProfileAsync(profileId);
         _ = _filesPage.CloseProfileAsync(profileId);
-        _ = _tunnelsPage.CloseProfileAsync(profileId);
         var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
         if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
+        try {await _tunnelsPage.CloseProfileAsync(profileId);}
+        catch(Exception) { /* The page displays and retains the first cleanup failure for shutdown. */ }
     }
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
