@@ -71,6 +71,14 @@ internal static class ConptyNative
             Marshal.FreeHGlobal(attributes);
         }
     }
+    public static void TerminateIfRunning(SafeProcessHandle process, uint exitCode)
+    {
+        if (TerminateProcess(process, exitCode)) return;
+        var error = Marshal.GetLastWin32Error();
+        // Terminating an already-exited process returns access denied. Its managed wait task
+        // may not have resumed yet; only the same held OS handle's signaled state proves exit.
+        if (error != 5 || WaitForSingleObject(process, 0) != 0) throw new Win32Exception(error);
+    }
     public static int WaitForExit(SafeProcessHandle process)
     {
         if (WaitForSingleObject(process, uint.MaxValue) != 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "Owned process wait failed.");
