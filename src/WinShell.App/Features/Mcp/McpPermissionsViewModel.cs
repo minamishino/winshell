@@ -40,7 +40,7 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
     public Task SaveAsync() => RunAsync(async token =>
     {
         if (!_loaded) throw new InvalidDataException("请先重新加载配置和权限。");
-        var selected = Profiles.Where(row => row.ListProfiles || row.RunScript).ToArray();
+        var selected = Profiles.Where(row => row.ListProfiles || row.RunScript || row.DockerRead || row.DockerControl || row.DockerExec).ToArray();
         if (selected.Length > 64) throw new InvalidDataException("最多允许 64 个配置，请减少授权数量。");
         var current = await profiles.ReadAsync(token);
         if (current.RecoveredFromBackup) throw new InvalidDataException("配置从备份恢复，请明确保存后重新加载权限。");
@@ -52,7 +52,7 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
             var key = await hosts.ReadAsync(new(matches[0].Host, matches[0].Port), token);
             if (key is null || !key.Equals(row.Key) || McpGrant.BindProfile(matches[0]) != McpGrant.BindProfile(row.Profile))
                 throw new InvalidDataException("配置或主机公钥已变化，请重新加载并重新选择授权。");
-            result.Add(McpGrant.Create(row.Profile, row.Key, row.ListProfiles, row.RunScript));
+            result.Add(McpGrant.Create(row.Profile, row.Key, row.ListProfiles, row.RunScript, row.DockerRead, row.DockerControl, row.DockerExec));
         }
         await grants.ReplaceAsync(result, token);
         Status = "权限已保存。撤销对新调用生效；已开始的操作仍需取消或等待结束。";
@@ -60,7 +60,7 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
     public Task RevokeAllAsync() => RunAsync(async token =>
     {
         await grants.ReplaceAsync([], token);
-        foreach (var row in Profiles) { row.ListProfiles = false; row.RunScript = false; }
+        foreach (var row in Profiles) { row.ListProfiles = false; row.RunScript = false; row.DockerRead = false; row.DockerControl = false; row.DockerExec = false; }
         Status = "已撤销全部权限。已开始的操作仍需取消或等待结束。";
     });
     private Task RunAsync(Func<CancellationToken, Task> operation)
@@ -97,10 +97,13 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
 
 public sealed class McpProfileGrantViewModel : ObservableObject
 {
-    private bool _listProfiles, _runScript;
+    private bool _listProfiles, _runScript, _dockerRead, _dockerControl, _dockerExec;
     public McpProfileGrantViewModel(ConnectionProfile profile, SshHostKey? key, McpGrant? grant)
     {
         Profile = profile; Key = key;
+        _dockerRead = key is not null && grant?.Allows(profile, key, McpGrant.DockerReadScope) == true;
+        _dockerControl = key is not null && grant?.Allows(profile, key, McpGrant.DockerControlScope) == true;
+        _dockerExec = key is not null && grant?.Allows(profile, key, McpGrant.DockerExecScope) == true;
         _listProfiles = key is not null && grant?.Allows(profile, key, McpGrant.ProfileListScope) == true;
         _runScript = key is not null && grant?.Allows(profile, key, McpGrant.ScriptScope) == true;
     }
@@ -108,6 +111,13 @@ public sealed class McpProfileGrantViewModel : ObservableObject
     public SshHostKey? Key { get; }
     public bool CanGrant => Key is not null;
     public string Name => Profile.DisplayName;
+    public string ProfileIdentifier => Profile.Id.ToString("D");
+    public string DockerReadLabel => $"允许读取 Docker 容器和日志：{Name}";
+    public string DockerControlLabel => $"允许启停和重启 Docker 容器：{Name}";
+    public string DockerExecLabel => $"允许在 Docker 容器执行任意命令：{Name}";
+    public bool DockerRead { get => _dockerRead; set => SetProperty(ref _dockerRead, value && CanGrant); }
+    public bool DockerControl { get => _dockerControl; set => SetProperty(ref _dockerControl, value && CanGrant); }
+    public bool DockerExec { get => _dockerExec; set => SetProperty(ref _dockerExec, value && CanGrant); }
     public string Target => $"{Profile.UserName}@{Profile.Host}:{Profile.Port}";
     public string KeyDescription => Key?.Fingerprint ?? "尚未信任主机公钥，请先通过 SSH 连接核验。";
     public string MetadataLabel => $"允许列出配置：{Name}";
