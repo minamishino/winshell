@@ -5,6 +5,7 @@ using System.Text;
 using FluentFTP;
 using FluentFTP.Helpers;
 using WinShell.Core.Credentials;
+using WinShell.Core.Files;
 using WinShell.Core.Connections;
 using WinShell.Core.Profiles;
 namespace WinShell.Infrastructure.Ftp;
@@ -17,6 +18,13 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
     private readonly ConnectionAdmissionBudget _budget;
     private IDisposable? _dataHandshake;
     private readonly List<FtpSocketStream> _dataStreams = [];
+    private readonly List<OwnedFtpTlsStream> _tlsStreams = [];
+    internal CancellationToken AuthenticationToken
+    {
+        get; private set;
+    }
+    internal void RegisterTlsStream(OwnedFtpTlsStream stream) => _tlsStreams.Add(stream);
+    internal void ConfigureTlsAuthentication(SslClientAuthenticationOptions options) => m_ConfigureAuthentication?.Invoke(this, new FtpSslAuthenticationEventArgs(options));
     internal TimeSpan Deadline
     {
         get;
@@ -37,6 +45,9 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         Deadline = timeout;
         _budget = budget;
         Config.EncryptionMode = profile.Protocol == ConnectionProtocol.Ftp ? FtpEncryptionMode.None : profile.FtpsMode == FtpsMode.Implicit ? FtpEncryptionMode.Implicit : FtpEncryptionMode.Explicit;
+        // Our strict path policy rejects unconditional slash/Trim changes. Keep all other characters literal.
+        Config.SanitizeMode = FtpSanitize.Disabled;
+        Config.CustomStream = typeof(OwnedFtpTlsStream);
         Config.DataConnectionEncryption = true;
         Config.EncryptAuthenticationOnly = false;
         Config.ValidateAnyCertificate = false;
@@ -55,6 +66,15 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         m_stream.ValidateCertificate += StrictCertificate;
         if (chainPolicy is not null)
             ConfigureAuthentication += (_, options) => options.Options.CertificateChainPolicy = chainPolicy;
+    }
+    public override async Task Connect(bool reConnect, CancellationToken token = default)
+    {
+        AuthenticationToken = token;
+        try
+        {
+            await base.Connect(reConnect, token).ConfigureAwait(false);
+        }
+        finally { AuthenticationToken = default; }
     }
     private static void StrictCertificate(FtpSocketStream stream, FtpSslValidationEventArgs args) => args.Accept = args.PolicyErrors == SslPolicyErrors.None;
     protected override async Task ConnectAsync(FtpSocketStream stream, string host, int port, FtpIpVersion ipVersions, CancellationToken token)
@@ -86,7 +106,13 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(Deadline);
         await SetDataTypeAsync(FtpDataType.Binary, deadline.Token).ConfigureAwait(false);
-        var stream = await OpenDataStreamAsync(command, 0, deadline.Token).ConfigureAwait(false);
+        AuthenticationToken = deadline.Token;
+        FtpDataStream stream;
+        try
+        {
+            stream = await OpenDataStreamAsync(command, 0, deadline.Token).ConfigureAwait(false);
+        }
+        finally { AuthenticationToken = default; }
         _dataHandshake?.Dispose();
         _dataHandshake = null;
         return stream;
@@ -96,9 +122,12 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(Deadline);
         await stream.CloseAsync(deadline.Token).ConfigureAwait(false);
+        foreach (var transport in _tlsStreams)
+            if (transport.CloseFailure is { } failure)
+                throw failure;
         var reply = await GetReply(deadline.Token).ConfigureAwait(false);
         if (reply.Code is not ("226" or "250"))
-            throw new IOException("FTP 数据完成应答无效：" + reply.Code);
+            throw new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 数据完成应答无效：" + reply.Code);
     }
     internal async Task CloseOwnedAsync()
     {
@@ -121,6 +150,9 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         catch (Exception error) { errors.Add(error); }
         _dataHandshake?.Dispose();
         _dataHandshake = null;
+        foreach (var transport in _tlsStreams)
+            if (transport.CloseFailure is { } failure)
+                errors.Add(failure);
         if (errors.Count != 0)
             throw new AggregateException("FTP 连接关闭失败。", errors);
     }
@@ -157,6 +189,13 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
             Observe(buffer.Span);
             return base.WriteAsync(buffer, token);
         }
+        private int CountRead(int read, int requested)
+        {
+            if (read == 0 && requested != 0)
+                throw new EndOfStreamException("FTP 控制连接已断开。");
+            _read += read;
+            return read;
+        }
         private int Reserve(int count)
         {
             if (count == 0)
@@ -168,26 +207,22 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         public override int Read(byte[] buffer, int offset, int count)
         {
             var read = base.Read(buffer, offset, Reserve(count));
-            _read += read;
-            return read;
+            return CountRead(read, count);
         }
         public override int Read(Span<byte> buffer)
         {
             var read = base.Read(buffer[..Reserve(buffer.Length)]);
-            _read += read;
-            return read;
+            return CountRead(read, buffer.Length);
         }
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
             var read = await base.ReadAsync(buffer, offset, Reserve(count), token).ConfigureAwait(false);
-            _read += read;
-            return read;
+            return CountRead(read, count);
         }
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token)
         {
             var read = await base.ReadAsync(buffer[..Reserve(buffer.Length)], token).ConfigureAwait(false);
-            _read += read;
-            return read;
+            return CountRead(read, buffer.Length);
         }
     }
 }
