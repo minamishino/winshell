@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
+using WinShell.App.Features.Terminal;
 using WinShell.Core.Ssh;
 using WinShell.Core.Connections;
 using WinShell.Core.Files;
@@ -28,6 +29,7 @@ public partial class App : Application
     private WorkspaceViewModel? _workspace;
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
+    private TerminalSessionsPage? _terminalPage;
     private FilesPage? _filesPage;
     private Task? _shutdown;
     private McpPermissionsPage? _mcpPage;
@@ -51,6 +53,7 @@ public partial class App : Application
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
+            builder.Services.AddSingleton<TerminalSessionsPage>();
             builder.Services.AddSingleton<IMcpGrantRepository>(_ => new JsonMcpGrantRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<McpPermissionsViewModel>();
             builder.Services.AddSingleton<McpPermissionsPage>();
@@ -61,6 +64,7 @@ public partial class App : Application
             _workspace = _host.Services.GetRequiredService<WorkspaceViewModel>();
             _connectionsPage = _host.Services.GetRequiredService<ConnectionProfilesPage>();
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
+            _terminalPage = _host.Services.GetRequiredService<TerminalSessionsPage>();
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
             _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
@@ -90,9 +94,10 @@ public partial class App : Application
         var workspace = AttemptAsync(() => _workspace?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var profiles = AttemptAsync(() => _profiles?.DisposeAsync().AsTask() ?? Task.CompletedTask);
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        var terminal = AttemptAsync(() => _terminalPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, terminal, files, mcp);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
