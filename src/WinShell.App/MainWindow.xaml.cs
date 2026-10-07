@@ -29,6 +29,9 @@ public sealed partial class MainWindow : Window
     private readonly TunnelsPage _tunnelsPage;
     private readonly DockerPage _dockerPage;
     private bool _dockerHandoffNavigation;
+    private bool _nativeDialogVisible, _navigationPaneVisible;
+    private Guid? _requestedFilesProfileId;
+    private int _navigationGeneration;
     private readonly SettingsPage _settingsPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
@@ -45,7 +48,7 @@ public sealed partial class MainWindow : Window
         _terminalPage.ViewModel.PropertyChanged += Terminal_PropertyChanged;
         _connectionsPage.ViewModel.BeginTerminalProfileMutationAsync = _terminalPage.BeginProfileMutationAsync;
         _dialogs = dialogs;
-        _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
+        _dialogs.PresentationChanged = DialogPresentationChanged;
         _filesPage = filesPage;
         _tunnelsPage = tunnelsPage;
         _settingsPage = settingsPage;
@@ -67,13 +70,43 @@ public sealed partial class MainWindow : Window
         }
         DockerHost.Content = dockerPage;
         WorkspaceHost.DataContext = workspace;
-        Navigation.SelectedItem = ConnectionsItem;
+        Navigation.SelectedItem = SshItem;
         _connectionsPage.ConnectSshRequested += Connections_ConnectSshRequested;
+        _connectionsPage.OpenFilesRequested += Connections_OpenFilesRequested;
         _connectionsPage.OpenProfileRequested += Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted += Connections_ProfileDeleted;
         _workspace.PropertyChanged += Workspace_PropertyChanged;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1120, 820));
         AppWindow.Closing += Window_Closing;
+    }
+
+    private void DialogPresentationChanged(bool visible)
+    {
+        _nativeDialogVisible = visible;
+        UpdateTerminalOverlay();
+    }
+    private void Navigation_PaneOpening(NavigationView sender, object args)
+    {
+        _navigationPaneVisible = true;
+        UpdateTerminalOverlay();
+    }
+    private void Navigation_PaneClosed(NavigationView sender, object args)
+    {
+        _navigationPaneVisible = false;
+        UpdateTerminalOverlay();
+    }
+    private void UpdateTerminalOverlay() => _terminalPage.SetDialogVisible(_nativeDialogVisible || _navigationPaneVisible);
+    private void HideTerminalFlyouts()
+    {
+        if (_terminalPage.FindName("TerminalCommands") is not CommandBar commands) return;
+        foreach (var command in commands.PrimaryCommands.Concat(commands.SecondaryCommands).OfType<AppBarButton>()) command.Flyout?.Hide();
+    }
+    private Guid? PreferredProfileId => _terminalPage.ViewModel.SelectedTab?.Profile?.Id ?? _connectionsPage.ViewModel.SelectedProfile?.Id;
+    private void Connections_OpenFilesRequested(object? sender, ConnectionProfile profile)
+    {
+        if (_closing) return;
+        _requestedFilesProfileId = profile.Id;
+        Navigation.SelectedItem = FilesItem;
     }
 
     public void SetShutdownHandler(Func<Task> shutdownAsync) => _shutdownAsync = shutdownAsync;
@@ -150,11 +183,16 @@ public sealed partial class MainWindow : Window
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || SettingsHost is null || DockerHost is null || TerminalHost is null) return;
+        var generation = ++_navigationGeneration;
+        var preferredFilesProfileId = _requestedFilesProfileId ?? PreferredProfileId;
+        _requestedFilesProfileId = null;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
         var showSettings = args.IsSettingsSelected;
         var showTerminal = ReferenceEquals(args.SelectedItem, SshItem);
+        Navigation.IsPaneOpen = false;
+        if (!showTerminal) HideTerminalFlyouts();
         TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
         _terminalPage.SetWorkspaceVisible(showTerminal);
         SettingsHost.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
@@ -167,9 +205,11 @@ public sealed partial class MainWindow : Window
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
         TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
         await cancelDocker;
+        if (generation != _navigationGeneration || _closing) return;
         if (showTunnels && !_closing) await _tunnelsPage.LoadAsync();
         if (showWorkspace) FocusSelectedTab();
-        if (showFiles && !_closing) await _filesPage.LoadProfilesAsync();
+        if (showFiles && !_closing) await _filesPage.LoadProfilesAsync(preferredFilesProfileId);
+        if (showDocker && !_closing) await _dockerPage.SelectProfileAsync(PreferredProfileId);
     }
 
     private void Workspace_PropertyChanged(object? sender, PropertyChangedEventArgs args)
@@ -241,8 +281,10 @@ public sealed partial class MainWindow : Window
     public Task BeginShutdownAsync()
     {
         _closing = true;
+        HideTerminalFlyouts();
         Navigation.IsEnabled = false;
         _connectionsPage.ConnectSshRequested -= Connections_ConnectSshRequested;
+        _connectionsPage.OpenFilesRequested -= Connections_OpenFilesRequested;
         _connectionsPage.OpenProfileRequested -= Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;

@@ -5,14 +5,14 @@
     xmlns:workspace="using:WinShell.App.Features.Workspace"
     Title="WinShell">
     <Grid x:Name="RootLayout" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <NavigationView x:Name="Navigation" IsSettingsVisible="True" PaneDisplayMode="Auto" IsBackButtonVisible="Collapsed" AlwaysShowHeader="False" SelectionChanged="Navigation_SelectionChanged">
+        <NavigationView x:Name="Navigation" IsSettingsVisible="True" PaneDisplayMode="LeftCompact" IsPaneOpen="False" OpenPaneLength="224" IsBackButtonVisible="Collapsed" AlwaysShowHeader="False" SelectionChanged="Navigation_SelectionChanged" PaneOpening="Navigation_PaneOpening" PaneClosed="Navigation_PaneClosed">
             <NavigationView.MenuItems>
-                <NavigationViewItem x:Name="ConnectionsItem" Content="连接配置" Icon="Contact" AutomationProperties.Name="连接配置"/>
-                <NavigationViewItem x:Name="WorkspaceItem" Content="配置详情" Icon="Document" AutomationProperties.Name="配置详情工作区"/>
-                <NavigationViewItem x:Name="SshItem" Content="SSH / PowerShell / WSL" Icon="World" AutomationProperties.Name="SSH PowerShell WSL 交互终端"/>
-                <NavigationViewItem x:Name="FilesItem" Content="远端文件" Icon="Folder" AutomationProperties.Name="远端文件工作区"/>
-                <NavigationViewItem x:Name="TunnelsItem" Content="SSH 隧道" Icon="Link" AutomationProperties.Name="SSH 隧道工作区"/>
-                <NavigationViewItem x:Name="DockerItem" Content="远程 Docker" Icon="AllApps" AutomationProperties.Name="远程 Docker 容器工作区"/>
+                <NavigationViewItem x:Name="SshItem" Content="终端" Icon="World" AutomationProperties.Name="SSH PowerShell WSL 交互终端"/>
+                <NavigationViewItem x:Name="ConnectionsItem" Content="连接" Icon="Contact" AutomationProperties.Name="连接配置"/>
+                <NavigationViewItem x:Name="WorkspaceItem" Content="配置详情" Icon="Document" Visibility="Collapsed" AutomationProperties.Name="配置详情工作区"/>
+                <NavigationViewItem x:Name="FilesItem" Content="文件" Icon="Folder" AutomationProperties.Name="远端文件工作区"/>
+                <NavigationViewItem x:Name="TunnelsItem" Content="隧道" Icon="Link" AutomationProperties.Name="SSH 隧道工作区"/>
+                <NavigationViewItem x:Name="DockerItem" Content="Docker" Icon="AllApps" AutomationProperties.Name="远程 Docker 容器工作区"/>
             </NavigationView.MenuItems>
             <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
                 <ContentControl x:Name="ConnectionsHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
