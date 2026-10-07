@@ -1,9 +1,9 @@
 <Page x:Class="WinShell.App.Features.Mcp.McpPermissionsPage"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <Grid Padding="24" RowSpacing="12">
+ <Grid Padding="0,8,0,0" RowSpacing="12">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <TextBlock Text="AI / MCP 权限" Style="{ThemeResource TitleTextBlockStyle}"/>
+  <TextBlock Text="AI / MCP 权限" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
   <TextBlock Grid.Row="1" TextWrapping="Wrap" Text="这些权限供同一 Windows 用户启动的本地 MCP 服务使用，不能识别某个指定 AI 客户端。允许执行任意 Shell 脚本可能修改或删除远端数据。撤销对新调用生效；已开始的操作仍需取消或等待结束（最长约 30 秒及连接清理时间）。"/>
   <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12">
    <Button IsEnabled="{Binding CanEdit}" Content="重新加载" Click="Reload_Click" AutomationProperties.Name="重新加载 MCP 权限"/>
