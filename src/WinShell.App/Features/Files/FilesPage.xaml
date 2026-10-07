@@ -5,17 +5,17 @@
  <Page.Resources><local:DirectoryLabelConverter x:Key="DirectoryLabel"/></Page.Resources>
  <Grid Padding="24" RowSpacing="12">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <TextBlock Text="SFTP 文件" Style="{ThemeResource TitleTextBlockStyle}"/>
+  <TextBlock Text="远端文件" Style="{ThemeResource TitleTextBlockStyle}"/>
   <Grid Grid.Row="1" ColumnSpacing="8">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <ComboBox x:Name="Profiles" PlaceholderText="选择已保存的 SSH 配置" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="SFTP 连接配置"/>
-   <Button Grid.Column="1" Content="连接" Click="Connect_Click" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="连接 SFTP"/>
-   <Button Grid.Column="2" Content="断开" Click="Disconnect_Click" IsEnabled="{Binding CanBrowse}" AutomationProperties.Name="断开 SFTP"/>
+   <ComboBox x:Name="Profiles" PlaceholderText="选择 SSH / FTP / FTPS 配置" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="文件连接配置"/>
+   <Button Grid.Column="1" Content="连接" Click="Connect_Click" IsEnabled="{Binding CanConnect}" AutomationProperties.Name="连接远端文件"/>
+   <Button Grid.Column="2" Content="断开" Click="Disconnect_Click" IsEnabled="{Binding CanBrowse}" AutomationProperties.Name="关闭文件连接"/>
    <Button Grid.Column="3" Content="重新加载配置" Click="Reload_Click" IsEnabled="{Binding CanConnect}"/>
   </Grid>
   <Grid Grid.Row="2" ColumnSpacing="8">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <TextBox x:Name="RemotePath" IsEnabled="{Binding CanBrowse}" Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096" KeyDown="Path_KeyDown" AutomationProperties.Name="SFTP 远端路径"/>
+   <TextBox x:Name="RemotePath" IsEnabled="{Binding CanBrowse}" Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096" KeyDown="Path_KeyDown" AutomationProperties.Name="远端路径"/>
    <Button Grid.Column="1" Content="转到" Click="Go_Click" IsEnabled="{Binding CanBrowse}"/><Button Grid.Column="2" Content="上级" Click="Up_Click" IsEnabled="{Binding CanBrowse}"/><Button Grid.Column="3" Content="刷新" Click="Refresh_Click" IsEnabled="{Binding CanBrowse}"/>
   </Grid>
   <ListView Grid.Row="3" x:Name="Entries" ItemsSource="{Binding Entries}" SelectionMode="Single" DoubleTapped="Entries_DoubleTapped" KeyDown="Entries_KeyDown" IsEnabled="{Binding CanBrowse}" AutomationProperties.Name="远端目录条目">
@@ -30,9 +30,10 @@
    <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <TextBox x:Name="UploadName" IsEnabled="{Binding CanBrowse}" PlaceholderText="上传文件名（留空则使用所选本地文件名）" MaxLength="4096" AutomationProperties.Name="上传远端文件名"/><Button Grid.Column="1" Content="选择文件并上传…" Click="Upload_Click" IsEnabled="{Binding CanBrowse}"/>
    </Grid>
-   <TextBlock Text="仅单文件传输，不覆盖已有目标。双击或 Enter 打开目录。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+   <TextBlock Text="{Binding TransferSafety}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
   </StackPanel>
   <StackPanel Grid.Row="5" Spacing="6">
+   <TextBlock Text="{Binding ConnectionNotice}" TextWrapping="Wrap"/>
    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite"/>
    <StackPanel Orientation="Horizontal" Spacing="12"><TextBlock Text="{Binding ProgressText}" VerticalAlignment="Center"/><Button Content="取消操作" Click="Cancel_Click" IsEnabled="{Binding CanCancel}"/></StackPanel>
    <TextBlock x:Name="Feedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
