@@ -3,9 +3,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ssh="using:WinShell.App.Features.Ssh">
-    <Grid RowSpacing="8" Padding="12">
+    <Grid RowSpacing="8" Padding="{StaticResource WinShellPagePadding}">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <TextBlock Text="SSH 连接工作区 · 交互式终端尚未接入" TextWrapping="Wrap" Style="{ThemeResource SubtitleTextBlockStyle}"/>
+        <TextBlock Text="SSH 连接工作区 · 交互式终端尚未接入" TextWrapping="Wrap" Style="{StaticResource WinShellPageTitleStyle}"/>
         <Grid Grid.Row="1">
             <TabView x:Name="SessionTabs" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
                      TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
