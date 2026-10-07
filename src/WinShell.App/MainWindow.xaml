@@ -10,7 +10,7 @@
                 <NavigationViewItem x:Name="ConnectionsItem" Content="连接配置" Icon="Contact" AutomationProperties.Name="连接配置"/>
                 <NavigationViewItem x:Name="WorkspaceItem" Content="配置详情" Icon="Document" AutomationProperties.Name="配置详情工作区"/>
                 <NavigationViewItem x:Name="SshItem" Content="SSH 会话" Icon="World" AutomationProperties.Name="SSH 会话工作区"/>
-                <NavigationViewItem x:Name="FilesItem" Content="SFTP 文件" Icon="Folder" AutomationProperties.Name="SFTP 文件工作区"/>
+                <NavigationViewItem x:Name="FilesItem" Content="远端文件" Icon="Folder" AutomationProperties.Name="远端文件工作区"/>
             </NavigationView.MenuItems>
             <Grid>
                 <ContentControl x:Name="ConnectionsHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
