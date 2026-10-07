@@ -109,24 +109,8 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
         }
     }, cancellationToken);
 
-    private async Task<FileStream> AcquireFileLockAsync(CancellationToken cancellationToken)
-    {
-        var lockPath = Path.Combine(_configurationDirectory, "profiles.lock");
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                ProfileStorageAccess.IsRegularFileOrMissing(lockPath);
-                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            }
-            catch (IOException exception) when ((exception.HResult & 0xffff) is 32 or 33)
-            {
-                // Retry only Windows sharing/lock violations; permissions and disk failures remain distinct.
-                await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
+    private Task<FileStream> AcquireFileLockAsync(CancellationToken cancellationToken) =>
+        ProfileStorageAccess.AcquireFileLockAsync(Path.Combine(_configurationDirectory, "profiles.lock"), cancellationToken);
 
     private async Task<ProfileReadResult> ReadCoreAsync(CancellationToken cancellationToken)
     {

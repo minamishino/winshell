@@ -5,6 +5,22 @@ namespace WinShell.Infrastructure.Windows.Profiles;
 
 public static class ProfileStorageAccess
 {
+    internal static async Task<FileStream> AcquireFileLockAsync(string lockPath, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                IsRegularFileOrMissing(lockPath);
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException exception) when ((exception.HResult & 0xffff) is 32 or 33)
+            {
+                await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
     private static readonly string[] ConfigurationFileNames = ["profiles.json", "profiles.backup.json", "profiles.lock"];
 
     public static void EnsureCurrentUserAccess(string directoryPath) =>

@@ -1,6 +1,9 @@
 using WinShell.App.Features.Mcp;
 using WinShell.Core.Mcp;
 using WinShell.Infrastructure.Windows.Mcp;
+using WinShell.Core.Tunnels;
+using WinShell.App.Features.Tunnels;
+using WinShell.Infrastructure.Windows.Tunnels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
@@ -29,6 +32,7 @@ public partial class App : Application
     private ConnectionProfilesPage? _connectionsPage;
     private SshSessionsPage? _sshPage;
     private FilesPage? _filesPage;
+    private TunnelsPage? _tunnelsPage;
     private Task? _shutdown;
     private McpPermissionsPage? _mcpPage;
 
@@ -48,6 +52,10 @@ public partial class App : Application
             builder.Services.AddSingleton<ConnectionAdmissionBudget>();
             builder.Services.AddSingleton<ISftpSessionFactory, SftpSessionFactory>();
             builder.Services.AddSingleton<FilesPage>();
+            builder.Services.AddSingleton<TunnelAdmissionBudget>();
+            builder.Services.AddSingleton<ITunnelFactory, TunnelSessionFactory>();
+            builder.Services.AddSingleton<ITunnelDefinitionRepository>(_ => new JsonTunnelDefinitionRepository(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<TunnelsPage>();
             builder.Services.AddSingleton<ISshSessionFactory, SshSessionFactory>();
             builder.Services.AddSingleton<NativeDialogService>();
             builder.Services.AddSingleton<SshSessionsPage>();
@@ -63,6 +71,7 @@ public partial class App : Application
             _sshPage = _host.Services.GetRequiredService<SshSessionsPage>();
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
             _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
+            _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
@@ -92,7 +101,8 @@ public partial class App : Application
         var ssh = AttemptAsync(() => _sshPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp);
+        var tunnels = AttemptAsync(() => _tunnelsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, files, mcp, tunnels);
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
