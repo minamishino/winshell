@@ -33,11 +33,12 @@ public sealed partial class TunnelsPage : Page
     private void Definitions_SelectionChanged(object sender,SelectionChangedEventArgs args)
     {
         if(Definitions.SelectedItem is not TunnelRowViewModel row)return;
+        TunnelEditor.IsExpanded=true;
         var definition=row.Definition; TunnelName.Text=definition.Name; Kind.SelectedIndex=(int)definition.Kind; ListenPort.Value=definition.BoundPort;
         TargetHost.Text=definition.TargetHost; TargetPort.Value=definition.TargetPort==0?22:definition.TargetPort;
         Profiles.SelectedItem=Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault(profile=>profile.Id==definition.ProfileId);
     }
-    private void New_Click(object sender,RoutedEventArgs args) { Definitions.SelectedItem=null; TunnelName.Text=""; TunnelName.Focus(FocusState.Programmatic); }
+    private void New_Click(object sender,RoutedEventArgs args) { Definitions.SelectedItem=null; TunnelEditor.IsExpanded=true; TunnelName.Text=""; TunnelName.Focus(FocusState.Programmatic); }
     private async void Reload_Click(object sender,RoutedEventArgs args)=>await LoadAsync();
     private async void Save_Click(object sender,RoutedEventArgs args)=>await RunAsync(async()=>{
         if(Profiles.SelectedItem is not ConnectionProfile profile)throw new ArgumentException("请选择已保存的 SSH 配置。");
