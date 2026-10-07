@@ -3,12 +3,14 @@ using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using WinShell.Core.Mcp;
+using WinShell.Core.Docker;
 using WinShell.Core.Ssh;
 
 namespace WinShell.Mcp.Tools;
 
 /// <summary>One shared admission budget for every tool/list call, retained through owned session disposal.</summary>
-public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuthorizedProfile, ISshSessionFactory> sessionFactory)
+public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuthorizedProfile, ISshSessionFactory> sessionFactory,
+    Func<McpAuthorizedProfile, IDockerService>? dockerFactory = null)
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -27,8 +29,10 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
             List<Tool> tools = [];
-            if ((await permissions.ReadAsync(McpGrant.ProfileListScope, timeout.Token).ConfigureAwait(false)).Count != 0) tools.Add(ProfileMetadataTool.Definition);
-            if ((await permissions.ReadAsync(McpGrant.ScriptScope, timeout.Token).ConfigureAwait(false)).Count != 0) tools.Add(ScriptDefinition);
+            var scopes = await permissions.ReadAvailableScopesAsync(timeout.Token).ConfigureAwait(false);
+            if (scopes.Contains(McpGrant.ProfileListScope)) tools.Add(ProfileMetadataTool.Definition);
+            if (scopes.Contains(McpGrant.ScriptScope)) tools.Add(ScriptDefinition);
+            tools.AddRange(DockerToolDefinitions.All.Where(tool => scopes.Contains(DockerToolDefinitions.Scope(tool.Name)!)));
             return new() { Tools = tools };
         }
         catch (Exception error) when (FailureCode(error) is not null) { throw new McpException(FailureCode(error)!); }
@@ -37,17 +41,34 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
     public async ValueTask<CallToolResult> CallAsync(CallToolRequestParams? parameters, CancellationToken cancellationToken)
     {
         var metadata = parameters?.Name == McpGrant.ProfileListScope;
-        Guid profileId = default; string? script = null;
-        if (metadata ? parameters!.Arguments is { Count: > 0 } : !Arguments(parameters, out profileId, out script)) return Error("invalid_arguments");
-        if (!Enter()) return Error("busy");
+        var dockerScope = DockerToolDefinitions.Scope(parameters?.Name);
+        Guid profileId = default; string? script = null, containerId = null, command = null;
+        if (dockerScope is not null && !DockerToolDefinitions.Arguments(parameters!, out profileId, out containerId, out command))
+            return DockerToolResult.Failure("invalid_arguments", parameters!.Name, profileId, null);
+        if (dockerScope is null && (metadata ? parameters!.Arguments is { Count: > 0 } : !Arguments(parameters, out profileId, out script))) return Error("invalid_arguments");
+        if (!Enter()) return dockerScope is null ? Error("busy") : DockerToolResult.Failure("busy", parameters!.Name, profileId, containerId);
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            var authorized = await permissions.ReadAsync(metadata ? McpGrant.ProfileListScope : McpGrant.ScriptScope, timeout.Token).ConfigureAwait(false);
+            var authorized = await permissions.ReadAsync(dockerScope ?? (metadata ? McpGrant.ProfileListScope : McpGrant.ScriptScope), timeout.Token).ConfigureAwait(false);
             if (metadata) return Text(JsonSerializer.Serialize(authorized.Select(item => new { id = item.Profile.Id, displayName = item.Profile.DisplayName, protocol = "ssh" }), JsonOptions));
             var selected = authorized.SingleOrDefault(item => item.Profile.Id == profileId);
-            if (selected is null) return Error("permission_denied");
+            if (selected is null) return dockerScope is null ? Error("permission_denied") : DockerToolResult.Failure("permission_denied", parameters!.Name, profileId, containerId);
+            if (dockerScope is not null)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (dockerFactory is null) return DockerToolResult.Failure("unsupported_capability", parameters!.Name, profileId, containerId);
+                var docker = dockerFactory(selected);
+                var dockerResult = await (parameters!.Name switch
+                {
+                    "docker.list_containers" => docker.ListContainersAsync(selected.Profile, timeout.Token),
+                    "docker.logs" => docker.GetContainerLogsAsync(selected.Profile, containerId!, timeout.Token),
+                    "docker.exec_once" => docker.RunContainerCommandAsync(selected.Profile, containerId!, command!, timeout.Token),
+                    _ => docker.ChangeContainerStateAsync(selected.Profile, containerId!, DockerToolDefinitions.Action(parameters.Name), timeout.Token)
+                }).ConfigureAwait(false);
+                return DockerToolResult.From(dockerResult, parameters.Name, profileId, containerId);
+            }
             timeout.Token.ThrowIfCancellationRequested();
             var connected = await sessionFactory(selected).ConnectAsync(selected.Profile, timeout.Token).ConfigureAwait(false);
             if (connected is not SshConnectResult.Connected connection) return Error("host_key_untrusted");
@@ -60,7 +81,15 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
                 return Error("output_limit");
             return Text(JsonSerializer.Serialize(result, JsonOptions));
         }
-        catch (Exception error) when (FailureCode(error) is not null) { return Error(FailureCode(error)!); }
+        catch (DockerException error) when (dockerScope is not null)
+        {
+            var code = error.Kind switch { DockerFailureKind.Unconfirmed => "result_unconfirmed", DockerFailureKind.Capacity => "output_limit",
+                DockerFailureKind.InvalidInput => "invalid_arguments", DockerFailureKind.InvalidMetadata => "invalid_output", _ => "unsupported_capability" };
+            return DockerToolResult.Failure(code, parameters!.Name, profileId, containerId,
+                code == "result_unconfirmed" ? (error.InnerException is null ? "missing_result" : FailureCode(error.InnerException) ?? "remote_failure") : null);
+        }
+        catch (Exception error) when (FailureCode(error) is not null)
+        { return dockerScope is null ? Error(FailureCode(error)!) : DockerToolResult.Failure(FailureCode(error)!, parameters!.Name, profileId, containerId); }
         finally { Interlocked.Decrement(ref _active); }
     }
     private bool Enter()
