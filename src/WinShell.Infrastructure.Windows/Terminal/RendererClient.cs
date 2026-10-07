@@ -39,6 +39,18 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
         var bytes = new byte[5]; bytes[0] = dark ? (byte)1 : (byte)0; BitConverter.TryWriteBytes(bytes.AsSpan(1), dpi);
         await RequestAsync(RendererFrameType.Theme, bytes, token).ConfigureAwait(false);
     }
+    public async Task SetThemeAsync(bool dark, int dpi, uint backgroundColor, uint foregroundColor, CancellationToken token)
+    {
+        if (dpi is < 96 or > 960) throw new ArgumentOutOfRangeException(nameof(dpi));
+        if (backgroundColor > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(backgroundColor));
+        if (foregroundColor > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(foregroundColor));
+        var bytes = new byte[13];
+        bytes[0] = dark ? (byte)1 : (byte)0;
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(1), dpi);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5), backgroundColor);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(9), foregroundColor);
+        await RequestAsync(RendererFrameType.Theme, bytes, token).ConfigureAwait(false);
+    }
     public async Task CompleteOutputAsync(CancellationToken cancellationToken) => await RequestAsync(RendererFrameType.CompleteOutput, default, cancellationToken).ConfigureAwait(false);
     public async Task<(ushort Columns, ushort Rows)> ResizeAsync(int width, int height, CancellationToken cancellationToken)
     {
