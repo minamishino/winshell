@@ -5,22 +5,26 @@ using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Files;
 
 // UI-affine. Network progress writes only a latest snapshot; the page samples it every 100 ms.
-public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostRepository knownHosts,
-    Func<SftpConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm) : ObservableObject, IAsyncDisposable
+public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts,
+    Func<RemoteFileConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm,
+    Func<ConnectionProfile, CancellationToken, Task<bool>>? confirmPlaintext = null) : ObservableObject, IAsyncDisposable
 {
-    private ISftpSession? _session;
+    private IRemoteFileSession? _session;
+    private ConnectionProtocol _protocol;
+    public string ConnectionNotice => _protocol is ConnectionProtocol.Ftp or ConnectionProtocol.Ftps && IsReady ? "配置已验证，文件操作分别建立连接。" : "";
+    public string TransferSafety => _protocol is ConnectionProtocol.Ftp or ConnectionProtocol.Ftps ? "单文件传输；已有目标拒绝覆盖。FTP 的并发创建保护取决于服务器；失败的远端临时文件不会自动删除。" : "仅单文件传输，不覆盖已有目标。双击或 Enter 打开目录。";
     private CancellationTokenSource? _cancellation;
     private Task _operation = Task.CompletedTask;
     private Task? _disposal;
     private Exception? _cleanupFailure;
     private bool _busy, _disposed;
-    private string _path = "/", _status = "选择已保存的 SSH 配置以浏览 SFTP 文件。", _progressText = "";
+    private string _path = "/", _status = "选择已保存的 SSH、FTP 或 FTPS 配置以浏览文件。", _progressText = "";
     private IReadOnlyList<RemoteFileEntry> _entries = [];
     private FileTransferProgress? _latestProgress;
     public bool IsBusy { get => _busy; private set { if (SetProperty(ref _busy, value)) NotifyState(); } }
-    public bool IsConnected => _session?.IsConnected == true;
-    public bool CanConnect => !_disposed && !IsBusy && !IsConnected;
-    public bool CanBrowse => !_disposed && !IsBusy && IsConnected;
+    public bool IsReady => _session?.IsReady == true;
+    public bool CanConnect => !_disposed && !IsBusy && !IsReady;
+    public bool CanBrowse => !_disposed && !IsBusy && IsReady;
     public bool CanCancel => !_disposed && IsBusy;
     public string Path { get => _path; set => SetProperty(ref _path, value); }
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
@@ -30,18 +34,21 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
     private string _listedPath = "/";
     public Task ConnectAsync(ConnectionProfile profile) => RunAsync(async token =>
     {
-        await CloseSessionAsync(); ConnectedProfileId = profile.Id; Entries = []; Status = "正在连接 SFTP…";
-        var result = await factory.ConnectAsync(profile, token);
-        if (result is SftpConnectResult.UnknownHostKey challenge)
+        await CloseSessionAsync(); ConnectedProfileId = profile.Id; Entries = []; _protocol = profile.Protocol; Status = "正在验证文件连接…";
+        var allowPlaintext = profile.Protocol == ConnectionProtocol.Ftp && confirmPlaintext is not null && await confirmPlaintext(profile, token);
+        token.ThrowIfCancellationRequested();
+        if (profile.Protocol == ConnectionProtocol.Ftp && !allowPlaintext) { ConnectedProfileId = null; Status = "未确认明文传输，连接已取消。"; return; }
+        var result = await factory.ConnectAsync(profile, token, allowPlaintext);
+        if (result is RemoteFileConnectResult.UnknownHostKey challenge)
         {
             token.ThrowIfCancellationRequested(); Status = "等待确认主机公钥。";
             if (!await confirm(challenge, token)) { ConnectedProfileId = null; Status = "未信任主机，连接已取消。"; return; }
             token.ThrowIfCancellationRequested();
             if (!await knownHosts.TrustIfAbsentOrSameAsync(challenge.Endpoint, challenge.Key, token))
                 throw new SshConnectionException(SshFailureKind.HostKeyChanged, "可信主机记录已改变；连接已拒绝。");
-            token.ThrowIfCancellationRequested(); result = await factory.ConnectAsync(profile, token);
+            token.ThrowIfCancellationRequested(); result = await factory.ConnectAsync(profile, token, allowPlaintext);
         }
-        if (result is not SftpConnectResult.Connected connected) throw new SshConnectionException(SshFailureKind.HostKeyChanged, "重新连接时未确认同一主机公钥。");
+        if (result is not RemoteFileConnectResult.Connected connected) throw new SshConnectionException(SshFailureKind.HostKeyChanged, "重新连接时未确认同一主机公钥。");
         if (token.IsCancellationRequested || _disposed) { await connected.Session.DisposeAsync(); token.ThrowIfCancellationRequested(); return; }
         _session = connected.Session; ConnectedProfileId = profile.Id; NotifyState();
         await ListCoreAsync("/", token);
@@ -73,7 +80,7 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
         var result = await RequireSession().UploadAsync(localPath, _listedPath, fileName, new LatestProgress(this), token);
         Status = $"上传完成：{result.BytesTransferred:N0} 字节；SHA-256 {result.Sha256}。刷新以查看文件。";
     });
-    public Task DisconnectAsync() => RunAsync(async _ => { await CloseSessionAsync(); Entries = []; Status = "SFTP 已断开。"; });
+    public Task DisconnectAsync() => RunAsync(async _ => { await CloseSessionAsync(); Entries = []; Status = "文件连接已关闭。"; });
     public void Cancel() { _cancellation?.Cancel(); }
     public void PublishProgress()
     {
@@ -84,7 +91,7 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
     }
     private sealed class LatestProgress(FilesViewModel owner) : IProgress<FileTransferProgress>
     { public void Report(FileTransferProgress value) => Interlocked.Exchange(ref owner._latestProgress, value); }
-    private ISftpSession RequireSession() => _session ?? throw new InvalidOperationException("请先连接 SFTP。");
+    private IRemoteFileSession RequireSession() => _session ?? throw new InvalidOperationException("请先选择文件连接。");
     private Task RunAsync(Func<CancellationToken, Task> action)
     {
         if (_disposed || IsBusy) return _operation;
@@ -106,7 +113,7 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
     }
     private static string Describe(Exception error)
     {
-        var message = error is OperationCanceledException ? "操作已取消；连接已弃用。" : error is SshConnectionException or ArgumentException or IOException or InvalidOperationException ? error.Message : "SFTP 操作失败。";
+        var message = error is OperationCanceledException ? "操作已取消；连接已弃用。" : error is SshConnectionException or ArgumentException or IOException or InvalidOperationException ? error.Message : "远端文件操作失败。";
         if (error.Data["RemoteTemporaryFile"] is string remote) message += $" 远端临时文件可能残留：{remote}";
         if (error.Data["RemoteTemporaryOwnershipConfirmed"] is false) message += " 创建结果和所有权未确认；未自动删除该路径。";
         if (error.Data["RemoteDestinationFile"] is string destination) message += $" 提交结果未确认，目标可能已创建：{destination}。请检查远端状态后再操作；未自动重试或删除目标。";
@@ -122,7 +129,8 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
     }
     private void NotifyState()
     {
-        OnPropertyChanged(nameof(IsConnected)); OnPropertyChanged(nameof(CanConnect)); OnPropertyChanged(nameof(CanBrowse)); OnPropertyChanged(nameof(CanCancel));
+        OnPropertyChanged(nameof(ConnectionNotice)); OnPropertyChanged(nameof(TransferSafety));
+        OnPropertyChanged(nameof(IsReady)); OnPropertyChanged(nameof(CanConnect)); OnPropertyChanged(nameof(CanBrowse)); OnPropertyChanged(nameof(CanCancel));
     }
     public ValueTask DisposeAsync()
     {
@@ -130,5 +138,5 @@ public sealed class FilesViewModel(ISftpSessionFactory factory, IKnownHostReposi
         _disposed = true; Cancel(); NotifyState();
         _disposal = DisposeCoreAsync(); return new(_disposal);
     }
-    private async Task DisposeCoreAsync() { await _operation; await CloseSessionAsync(); if (_cleanupFailure is not null) throw new AggregateException("SFTP 会话清理失败。", _cleanupFailure); }
+    private async Task DisposeCoreAsync() { await _operation; await CloseSessionAsync(); if (_cleanupFailure is not null) throw new AggregateException("文件会话清理失败。", _cleanupFailure); }
 }
