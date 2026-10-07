@@ -1,4 +1,5 @@
-WinShell reviewed SSH.NET source 2026.0.0.3 (Shell + SFTP receive + opt-in exclusive bounded forwarding guards).
+WinShell reviewed SSH.NET source 2026.0.0.4 (Shell + PTY exec + SFTP receive + opt-in exclusive bounded forwarding guards).
+ShellExec.patch supplements the canonical Shell patch with a bounded optional command sent using the mature ExecRequest after PTY acceptance. Default shell requests and exclusive lifecycle ownership remain unchanged.
 Forwarding.patch changes only ForwardedPort, Local/Remote/Dynamic, Direct/ForwardedTcpip, and Session transport abort. Opt-in requires exclusive single-use SSH client ownership; default legacy paths are unchanged.
 Upstream SSH.NET 2026.0.0 commit 7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e; https://github.com/sshnet/SSH.NET
 
