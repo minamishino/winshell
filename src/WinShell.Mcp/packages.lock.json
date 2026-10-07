@@ -17,6 +17,11 @@
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
       },
+      "Microsoft.Windows.Console.ConPTY": {
+        "type": "Transitive",
+        "resolved": "1.25.260930003",
+        "contentHash": "gQ/kH5cA4jVvzIEGZKxHiVCRC9aelpHW5xn45Sh+bflv2kuyXi5JFHJpAlzdouLYpeSCcjwq6y1Y/vcy5Wxwew=="
+      },
       "renci.sshnet": {
         "type": "Project",
         "dependencies": {
@@ -37,6 +42,7 @@
       "winshell.infrastructure.windows": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Windows.Console.ConPTY": "[1.25.260930003, )",
           "WinShell.Core": "[1.0.0, )"
         }
       },

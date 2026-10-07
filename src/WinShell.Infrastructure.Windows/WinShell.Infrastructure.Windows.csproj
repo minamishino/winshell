@@ -6,6 +6,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.Console.ConPTY" />
+    <Compile Include="../WinShell.Terminal.Shared/*.cs" Link="Terminal/Shared/%(Filename)%(Extension)" />
     <ProjectReference Include="../WinShell.Core/WinShell.Core.csproj" />
   </ItemGroup>
 </Project>

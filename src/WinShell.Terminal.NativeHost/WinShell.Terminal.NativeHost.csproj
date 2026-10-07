@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework><WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion><PlatformTarget>x64</PlatformTarget><RuntimeIdentifier>win-x64</RuntimeIdentifier><ApplicationManifest>app.manifest</ApplicationManifest><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../WinShell.Terminal.Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
+    <Content Include="artifacts/stable-native/Microsoft.Terminal.Control.dll" Link="Microsoft.Terminal.Control.dll" CopyToOutputDirectory="Always" />
+    <Content Include="artifacts/stable-native/NOTICE.html" Link="NOTICE.html" CopyToOutputDirectory="Always" />
+    <Content Include="ThirdPartyNotices.txt;StableNativeEngine.json" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+  <Target Name="VerifyStableNativeEngine" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('artifacts/stable-native/Microsoft.Terminal.Control.dll')" Text="Initialize-StableNativeEngine.ps1 must verify the stable native archive." />
+    <GetFileHash Files="artifacts/stable-native/Microsoft.Terminal.Control.dll" Algorithm="SHA256"><Output TaskParameter="Hash" PropertyName="NativeDllHash" /></GetFileHash>
+    <GetFileHash Files="artifacts/stable-native/NOTICE.html" Algorithm="SHA256"><Output TaskParameter="Hash" PropertyName="NativeNoticeHash" /></GetFileHash>
+    <Error Condition="'$(NativeDllHash)' != 'E27CB1D3D592934826152E0A2B3C2FB0B933C80D8DBD105EF2C869FC99E5D46B' Or '$(NativeNoticeHash)' != '9691413DFD4979A89D3A02853A7153FE5F40DF937CC817DD2715621EC8EA04EF'" Text="Fixed native DLL or complete notice hash differs." />
+  </Target>
+</Project>
