@@ -1,3 +1,4 @@
+using WinShell.App.Features.Tunnels;
 using System.ComponentModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -18,20 +19,23 @@ public sealed partial class MainWindow : Window
     private readonly WorkspaceViewModel _workspace;
     private readonly SshSessionsPage _sshPage;
     private readonly FilesPage _filesPage;
+    private readonly TunnelsPage _tunnelsPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, TunnelsPage tunnelsPage)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
         _sshPage = sshPage;
         _filesPage = filesPage;
+        _tunnelsPage = tunnelsPage;
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
         FilesHost.Content = filesPage;
+        TunnelsHost.Content = tunnelsPage;
         filesPage.SetOwnerWindow(this);
         WorkspaceHost.DataContext = workspace;
         Navigation.SelectedItem = ConnectionsItem;
@@ -70,20 +74,24 @@ public sealed partial class MainWindow : Window
         if (_closing) return;
         _ = _sshPage.CloseProfileAsync(profileId);
         _ = _filesPage.CloseProfileAsync(profileId);
+        _ = _tunnelsPage.CloseProfileAsync(profileId);
         var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
         if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
     }
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
+        var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
         var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
-        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showTunnels ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
+        TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
+        if (showTunnels && !_closing) await _tunnelsPage.LoadAsync();
         if (showWorkspace) FocusSelectedTab();
         if (showFiles && !_closing) await _filesPage.LoadProfilesAsync();
     }
