@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using WinShell.App.Features.Connections;
 using WinShell.App.Features.Workspace;
 using WinShell.App.Features.Ssh;
+using WinShell.App.Features.Terminal;
 using WinShell.Core.Profiles;
 using WinShell.App.Features.Files;
 
@@ -18,20 +19,26 @@ public sealed partial class MainWindow : Window
     private readonly ConnectionProfilesPage _connectionsPage;
     private readonly WorkspaceViewModel _workspace;
     private readonly SshSessionsPage _sshPage;
+    private readonly TerminalSessionsPage _terminalPage;
+    private readonly NativeDialogService _dialogs;
     private readonly FilesPage _filesPage;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
 
-    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage)
+    public MainWindow(ConnectionProfilesPage connectionsPage, WorkspaceViewModel workspace, SshSessionsPage sshPage, FilesPage filesPage, McpPermissionsPage mcpPage, TerminalSessionsPage terminalPage, NativeDialogService dialogs)
     {
         _connectionsPage = connectionsPage;
         _workspace = workspace;
         _sshPage = sshPage;
+        _terminalPage = terminalPage;
+        _dialogs = dialogs;
+        _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
         _filesPage = filesPage;
         InitializeComponent();
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
+        TerminalHost.Content = terminalPage;
         FilesHost.Content = filesPage;
         filesPage.SetOwnerWindow(this);
         McpHost.Content = mcpPage;
@@ -63,14 +70,15 @@ public sealed partial class MainWindow : Window
     private async void Connections_ConnectSshRequested(object? sender, ConnectionProfile profile)
     {
         if (_closing) return;
-        Navigation.SelectedItem = SshItem;
-        await _sshPage.ConnectSavedProfileAsync(profile);
+        Navigation.SelectedItem = TerminalItem;
+        await _terminalPage.ConnectSavedProfileAsync(profile);
     }
 
     private void Connections_ProfileDeleted(object? sender, Guid profileId)
     {
         if (_closing) return;
         _ = _sshPage.CloseProfileAsync(profileId);
+        _ = _terminalPage.CloseProfileAsync(profileId);
         _ = _filesPage.CloseProfileAsync(profileId);
         var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
         if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
@@ -78,13 +86,16 @@ public sealed partial class MainWindow : Window
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || McpHost is null) return;
+        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || McpHost is null || TerminalHost is null) return;
         var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
         var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
         var showSsh = ReferenceEquals(args.SelectedItem, SshItem);
         var showMcp = ReferenceEquals(args.SelectedItem, McpItem);
+        var showTerminal = ReferenceEquals(args.SelectedItem, TerminalItem);
+        TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
+        _terminalPage.SetWorkspaceVisible(showTerminal);
         McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showMcp ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionsHost.Visibility = showWorkspace || showSsh || showFiles || showMcp || showTerminal ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = showSsh ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
@@ -162,6 +173,7 @@ public sealed partial class MainWindow : Window
         _connectionsPage.OpenProfileRequested -= Connections_OpenProfileRequested;
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;
+        _dialogs.PresentationChanged = null;
         return Task.WhenAll(_pendingTabActions.ToArray());
     }
 
