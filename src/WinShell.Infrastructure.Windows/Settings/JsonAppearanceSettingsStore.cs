@@ -71,7 +71,7 @@ public sealed class JsonAppearanceSettingsStore(string configurationDirectory) :
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 4, AllowDuplicateProperties = false });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 2 ||
-                !root.TryGetProperty("schemaVersion", out var version) || !version.TryGetInt32(out var number) || number != 1 ||
+                !root.TryGetProperty("schemaVersion", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != 1 ||
                 !root.TryGetProperty("theme", out var theme) || theme.ValueKind != JsonValueKind.String)
                 throw new InvalidDataException("不支持的外观设置格式。");
             return theme.GetString() switch
