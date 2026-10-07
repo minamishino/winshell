@@ -12,6 +12,7 @@ using WinShell.App.Features.Ssh;
 using WinShell.App.Features.Docker;
 using WinShell.App.Features.Terminal;
 using WinShell.Core.Profiles;
+using WinShell.Core.Docker;
 using WinShell.App.Features.Files;
 
 namespace WinShell.App;
@@ -25,6 +26,8 @@ public sealed partial class MainWindow : Window
     private readonly NativeDialogService _dialogs;
     private readonly FilesPage _filesPage;
     private readonly TunnelsPage _tunnelsPage;
+    private readonly DockerPage _dockerPage;
+    private bool _dockerHandoffNavigation;
     private readonly HashSet<Task> _pendingTabActions = [];
     private Func<Task>? _shutdownAsync;
     private bool _closing, _closeReady;
@@ -35,6 +38,9 @@ public sealed partial class MainWindow : Window
         _workspace = workspace;
         _sshPage = sshPage;
         _terminalPage = terminalPage;
+        _dockerPage = dockerPage;
+        _dockerPage.OpenTerminalAsync = OpenDockerTerminalAsync;
+        _terminalPage.ViewModel.PropertyChanged += Terminal_PropertyChanged;
         _connectionsPage.ViewModel.BeginTerminalProfileMutationAsync = _terminalPage.BeginProfileMutationAsync;
         _dialogs = dialogs;
         _dialogs.PresentationChanged = _terminalPage.SetDialogVisible;
@@ -60,6 +66,21 @@ public sealed partial class MainWindow : Window
     }
 
     public void SetShutdownHandler(Func<Task> shutdownAsync) => _shutdownAsync = shutdownAsync;
+    private void Terminal_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(TerminalSessionsViewModel.OwnedCount))
+            _dockerPage.ViewModel.TerminalCapacityAvailable = !_closing && _terminalPage.ViewModel.OwnedCount < 2;
+    }
+    private async Task<bool> OpenDockerTerminalAsync(DockerTerminalRequest request, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (_closing) return false;
+        // Only this synchronous navigation belongs to the handoff. Later navigation cancels pending startup.
+        _dockerHandoffNavigation = true;
+        try { Navigation.SelectedItem = SshItem; }
+        finally { _dockerHandoffNavigation = false; }
+        return await _terminalPage.OpenDockerAsync(request, token);
+    }
 
 
     private void Connections_OpenProfileRequested(object? sender, ConnectionProfile profile)
@@ -106,12 +127,14 @@ public sealed partial class MainWindow : Window
         _terminalPage.SetWorkspaceVisible(showTerminal);
         McpHost.Visibility = showMcp ? Visibility.Visible : Visibility.Collapsed;
         var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
+        var cancelDocker = !_dockerHandoffNavigation ? _dockerPage.ViewModel.CancelPendingAsync() : Task.CompletedTask;
         DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
         ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showMcp || showDocker ? Visibility.Collapsed : Visibility.Visible;
         SshHost.Visibility = Visibility.Collapsed;
         WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
         TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
+        await cancelDocker;
         if (showTunnels && !_closing) await _tunnelsPage.LoadAsync();
         if (showWorkspace) FocusSelectedTab();
         if (showFiles && !_closing) await _filesPage.LoadProfilesAsync();
@@ -188,6 +211,9 @@ public sealed partial class MainWindow : Window
         _connectionsPage.ViewModel.ProfileDeleted -= Connections_ProfileDeleted;
         _workspace.PropertyChanged -= Workspace_PropertyChanged;
         _dialogs.PresentationChanged = null;
+        _dockerPage.OpenTerminalAsync = null;
+        _terminalPage.ViewModel.PropertyChanged -= Terminal_PropertyChanged;
+        _dockerPage.ViewModel.Cancel();
         return Task.WhenAll(_pendingTabActions.ToArray());
     }
 
