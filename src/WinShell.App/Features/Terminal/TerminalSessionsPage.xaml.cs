@@ -25,11 +25,11 @@ public sealed partial class TerminalSessionsPage : Page
     public TerminalSessionsViewModel ViewModel { get; }
     public NativeTerminalControl? SelectedControl => ViewModel.SelectedTab is { } selected && _controls.TryGetValue(selected, out var control) ? control : null;
 
-    public TerminalSessionsPage(ISshSessionFactory factory, IKnownHostRepository hosts, NativeDialogService dialogs)
+    public TerminalSessionsPage(ISshSessionFactory factory, IKnownHostRepository hosts, NativeDialogService dialogs, IConnectionProfileRepository profiles)
     {
         _dialogs = dialogs;
         ViewModel = new(factory, hosts, (challenge, token) => _dialogs.ConfirmAsync(XamlRoot, "确认 SSH 主机公钥",
-            $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证，请通过可信渠道核实后再信任。", "信任并连接", token));
+            $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证，请通过可信渠道核实后再信任。", "信任并连接", token), profiles);
         InitializeComponent(); DataContext = ViewModel;
         ViewModel.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(ViewModel.SelectedTab)) UpdatePresentation(); };
     }
@@ -49,7 +49,7 @@ public sealed partial class TerminalSessionsPage : Page
             if (local is not null) _localRequests.Add(model, local);
             TerminalHosts.Children.Add(control);
             return model;
-        });
+        }, profile?.Id);
         try
         {
             UpdatePresentation();
@@ -85,8 +85,22 @@ public sealed partial class TerminalSessionsPage : Page
         }
         if (_visible && !_dialogVisible && !_closing) SelectedControl?.Focus(FocusState.Programmatic);
     }
-    public Task CloseProfileAsync(Guid profileId) => RunActionAsync(async () =>
-    { foreach (var tab in ViewModel.Tabs.Where(tab => tab.Profile?.Id == profileId).ToArray()) await CloseTabAsync(tab); }, closingOwners: true);
+    public Task CloseProfileAsync(Guid profileId) => RunActionAsync(() => CloseProfileOwnersAsync(profileId), closingOwners: true);
+    private async Task CloseProfileOwnersAsync(Guid profileId)
+    {
+        var closing = Task.WhenAll(ViewModel.Tabs.Where(tab => tab.Profile?.Id == profileId).ToArray().Select(CloseTabAsync));
+        try { await closing; }
+        catch { throw (Exception?)closing.Exception ?? new InvalidOperationException("终端关闭已取消，配置未修改。"); }
+    }
+    public async Task<IDisposable> BeginProfileMutationAsync(Guid profileId, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (_closing) throw new InvalidOperationException("窗口正在关闭，无法更新连接配置。");
+        var lease = ViewModel.BeginProfileMutation(profileId);
+        Feedback.Text = "正在关闭此连接的全部终端，然后更新配置或凭据。保存后请重新打开终端。";
+        try { await CloseProfileOwnersAsync(profileId); token.ThrowIfCancellationRequested(); return lease; }
+        catch { lease.Dispose(); throw; }
+    }
     public async Task CloseTabAsync(TerminalTabViewModel tab)
     {
         try { await ViewModel.CloseTabAsync(tab); }
@@ -125,16 +139,24 @@ public sealed partial class TerminalSessionsPage : Page
     {
         if (ViewModel.SelectedTab is not { } tab) return;
         _localRequests.TryGetValue(tab, out var local);
-        await RunActionAsync(async () => { await CloseTabAsync(tab); if (!_closing) await OpenAsync(tab.Title, tab.Profile, local); });
+        await RunActionAsync(async () =>
+        {
+            await CloseTabAsync(tab);
+            if (_closing) return;
+            if (tab.Profile is { } profile) await ViewModel.ValidateSavedProfileAsync(profile, _stop.Token);
+            await OpenAsync(tab.Title, tab.Profile, local);
+        });
     }
     private async void Copy_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
     {
+        if (ViewModel.SelectedTab?.IsClosing == true) { Feedback.Text = "终端已结束，请在保留的诊断文本中选择并复制。"; return; }
         if (SelectedControl is not { } control) return;
         var text = await control.CopySelectionAsync(_stop.Token);
         var content = new DataPackage(); content.SetText(text); Clipboard.SetContent(content);
     });
     private async void Paste_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
     {
+        if (ViewModel.SelectedTab?.IsClosing == true) { Feedback.Text = "终端已结束，请重新连接后再粘贴。"; return; }
         if (SelectedControl is not { } control) return;
         await control.PasteAsync(TerminalClipboard.ReadBoundedText(), _stop.Token);
     });
