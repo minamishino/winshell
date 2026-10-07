@@ -177,7 +177,11 @@ public sealed partial class MainWindow : Window
                 _connectionsPage.FocusProfiles();
             }
         }
-        catch (Exception) { Navigation.Header = "详情标签清理失败，已尝试释放资源。"; }
+        catch (Exception)
+        {
+            Navigation.Header = new TextBlock { Text = "详情标签清理失败，已尝试释放资源。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
+        }
         finally
         {
             _pendingTabActions.Remove(completion.Task);
@@ -241,7 +245,8 @@ public sealed partial class MainWindow : Window
         catch (Exception)
         {
             // All cleanup owners have been attempted. Keep this failure visible until the user closes again.
-            Navigation.Header = "关闭时部分资源清理失败；已继续清理其他资源。请再次关闭窗口退出。";
+            Navigation.Header = new TextBlock { Text = "关闭时部分资源清理失败；已继续清理其他资源。请再次关闭窗口退出。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
             _closeReady = true;
         }
     }
