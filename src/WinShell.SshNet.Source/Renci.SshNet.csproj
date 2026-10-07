@@ -3,18 +3,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>Renci.SshNet</AssemblyName>
     <RootNamespace>Renci.SshNet</RootNamespace>
-    <Product>SSH.NET (WinShell reviewed exclusive Shell and SFTP receive supplements)</Product>
-    <Version>2026.0.0.2</Version>
+    <Product>SSH.NET (WinShell reviewed exclusive Shell, SFTP receive and bounded forwarding supplements)</Product>
+    <Version>2026.0.0.3</Version>
     <!-- Verified against the official 2026.0.0 package from this source commit. -->
-    <AssemblyVersion>2026.0.0.2</AssemblyVersion>
-    <FileVersion>2026.0.0.2</FileVersion>
-    <InformationalVersion>2026.0.0+7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e.winshell-shell-sftp</InformationalVersion>
+    <AssemblyVersion>2026.0.0.3</AssemblyVersion>
+    <FileVersion>2026.0.0.3</FileVersion>
+    <InformationalVersion>2026.0.0+7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e.winshell-shell-sftp-forwarding</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Copyright>Copyright © Renci 2010-2026</Copyright>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <UpstreamRoot>$(MSBuildThisFileDirectory)../../artifacts/sftp-product/source/patched/SSH.NET-7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e</UpstreamRoot>
+    <UpstreamRoot>$(MSBuildThisFileDirectory)../../artifacts/tunnel-product/source/patched/SSH.NET-7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e</UpstreamRoot>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>$(UpstreamRoot)/Renci.SshNet.snk</AssemblyOriginatorKeyFile>
     <IsPackable>false</IsPackable>
