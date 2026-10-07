@@ -28,4 +28,10 @@
     <Error Condition="'@(NativeRendererFiles)' == ''" Text="Native renderer output must be built before packaging the App." />
     <Copy SourceFiles="@(NativeRendererFiles)" DestinationFolder="$(OutDir)Terminal" SkipUnchangedFiles="false" />
   </Target>
+  <Target Name="CopyPortablePowerShell" AfterTargets="Build">
+    <PropertyGroup><PowerShellRoot>$(MSBuildThisFileDirectory)../../artifacts/powershell/7.6.6/</PowerShellRoot></PropertyGroup>
+    <Error Condition="!Exists('$(PowerShellRoot)pwsh.exe') or !Exists('$(PowerShellRoot)LICENSE.txt') or !Exists('$(PowerShellRoot)ThirdPartyNotices.txt')" Text="Run src/WinShell.Infrastructure.Windows/Terminal/Prepare-PowerShell.ps1 before packaging the App." />
+    <ItemGroup><PortablePowerShellFiles Include="$(PowerShellRoot)**/*" /></ItemGroup>
+    <Copy SourceFiles="@(PortablePowerShellFiles)" DestinationFiles="@(PortablePowerShellFiles->'$(OutDir)PowerShell/7.6.6/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+  </Target>
 </Project>
