@@ -73,12 +73,14 @@ public sealed class SshSessionFactory : ISshSessionFactory
         catch (OperationCanceledException) { throw; }
         catch (Exception error) { throw new SshConnectionException(SshFailureKind.Storage, "无法读取可信主机记录；连接已拒绝。", error); }
 
-        using var authentication = trustedKey is null
-            ? SshAuthenticationScope.CreateProbe(profile.UserName)
-            : await SshAuthenticationScope.CreateAsync(profile, _credentials, cancellationToken).ConfigureAwait(false);
+        using Renci.SshNet.AuthenticationMethod authentication = trustedKey is null
+            ? new NoneAuthenticationMethod(profile.UserName)
+            : new DeferredAuthenticationMethod(profile, _credentials, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        using var cancellableAuthentication = new CancellableAuthenticationMethod(authentication.Method, cancellationToken);
+        using var cancellableAuthentication = new CancellableAuthenticationMethod(authentication, cancellationToken);
         var connection = new ConnectionInfo(endpoint.Host, endpoint.Port, profile.UserName, cancellableAuthentication) { Timeout = _timeout };
+        // The bounded interactive receive path is verified with uncompressed payloads.
+        connection.CompressionAlgorithms.Remove("zlib@openssh.com");
         var session = new SshNetSession(new SshClient(connection) { KeepAliveInterval = TimeSpan.FromSeconds(30) }, trustedKey, lease);
         var transferred = false;
         Exception? connectionFailure = null;
