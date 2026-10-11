@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using WinShell.Terminal.Shared;
+using WinShell.Core.Settings;
 
 namespace WinShell.Infrastructure.Windows.Terminal;
 
@@ -50,6 +51,14 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5), backgroundColor);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(9), foregroundColor);
         await RequestAsync(RendererFrameType.Theme, bytes, token).ConfigureAwait(false);
+    }
+    public async Task SetThemeAsync(bool dark, int dpi, uint backgroundColor, uint foregroundColor, TerminalPreferences preferences, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(preferences);
+        preferences.Validate();
+        var payload = new RendererThemePayload(dark, dpi, backgroundColor, foregroundColor,
+            (byte)preferences.FontFamily, preferences.FontSize, (byte)preferences.CursorStyle);
+        await RequestAsync(RendererFrameType.Theme, payload.Encode(), token).ConfigureAwait(false);
     }
     public async Task CompleteOutputAsync(CancellationToken cancellationToken) => await RequestAsync(RendererFrameType.CompleteOutput, default, cancellationToken).ConfigureAwait(false);
     public async Task<(ushort Columns, ushort Rows)> ResizeAsync(int width, int height, CancellationToken cancellationToken)
