@@ -14,7 +14,7 @@ public sealed partial class SettingsPage : Page
         new("general", "常规", "启动 页面 默认"), new("appearance", "外观", "主题 浅色 深色 系统"),
         new("terminal", "终端", "字体 字号 光标 WSL PowerShell 默认 关闭 确认"), new("input", "输入", "粘贴 多行 换行 复制"),
         new("connections", "连接", "SSH 主机 端口 认证 密码 凭据 配置 SFTP FTP FTPS"),
-        new("files", "文件", "传输 下载 上传 SFTP FTP FTPS"), new("mcp", "AI / MCP", "权限 stdio 授权 客户端 AI 服务")
+        new("files", "文件", "传输 下载 上传 SFTP FTP FTPS"), new("mcp", "AI / MCP", "权限 stdio HTTP Streamable SSE 兼容 令牌 token 端口 授权 客户端 AI 服务")
     ];
     private bool _updatingSelection = true;
     private Action<SettingsNavigationTarget>? _navigate;
