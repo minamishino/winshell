@@ -135,11 +135,14 @@ public sealed partial class TerminalSessionsPage : Page
     {
         if (EmptyMessage is null) return;
         EmptyMessage.Visibility = ViewModel.Tabs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // The CommandBar overflow is windowed; other overlays still need to suppress native airspace.
+        var popupObscuresTerminal = _openPopups.Any(popup => !ReferenceEquals(popup, TerminalCommands));
         foreach (var pair in _controls)
         {
             var selected = ReferenceEquals(ViewModel.SelectedTab, pair.Key);
             pair.Value.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
-            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && _openPopups.Count == 0 && selected && !_closing && !pair.Key.IsClosing);
+            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && !popupObscuresTerminal && selected && !_closing && !pair.Key.IsClosing,
+                allowInput: _openPopups.Count == 0);
         }
         if (_visible && !_dialogVisible && _openPopups.Count == 0 && !_closing) SelectedControl?.Focus(FocusState.Programmatic);
     }

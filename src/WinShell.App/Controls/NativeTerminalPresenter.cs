@@ -11,14 +11,14 @@ internal sealed class NativeTerminalPresenter : Grid, IDisposable
 {
     private HostWindow? _host;
     public nint Window => _host?.DangerousGetHandle() ?? 0;
-    public void SetVisible(bool visible)
+    public void SetVisible(bool visible, bool allowInput = true)
     {
         if (_host is null) return;
-        // Stop native keyboard admission synchronously while the renderer visibility ACK is pending.
+        // Stop native keyboard admission synchronously, including while a popup keeps the surface visible.
         // Clear only focus inside this owned subtree; the visible WinUI overlay chooses its target.
         var focused = GetFocus();
-        if (!visible && (focused == Window || IsChild(Window, focused))) SetFocus(0);
-        EnableWindow(Window, visible);
+        if ((!visible || !allowInput) && (focused == Window || IsChild(Window, focused))) SetFocus(0);
+        EnableWindow(Window, visible && allowInput);
         ShowWindow(Window, visible ? 4 : 0);
     }
     public void CreateHost()
