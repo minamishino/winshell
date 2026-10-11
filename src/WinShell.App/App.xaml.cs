@@ -76,6 +76,7 @@ public partial class App : Application
             builder.Services.AddSingleton<McpPermissionsViewModel>();
             builder.Services.AddSingleton<McpPermissionsPage>();
             builder.Services.AddSingleton<IAppearanceSettingsStore>(_ => new JsonAppearanceSettingsStore(GetConfigurationDirectory()));
+            builder.Services.AddSingleton<IApplicationSettingsStore>(_ => new JsonApplicationSettingsStore(GetConfigurationDirectory()));
             builder.Services.AddSingleton<SettingsViewModel>();
             builder.Services.AddSingleton<SettingsPage>();
             builder.Services.AddSingleton<IDockerService, DockerService>();
@@ -95,6 +96,8 @@ public partial class App : Application
             _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
             _dockerPage = _host.Services.GetRequiredService<DockerPage>();
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+            mainWindow.ConfigureSettingsNavigation();
+            mainWindow.ApplyStartupPage();
             mainWindow.SetShutdownHandler(ShutdownAsync);
             _mainWindow = mainWindow;
             mainWindow.Activate();
