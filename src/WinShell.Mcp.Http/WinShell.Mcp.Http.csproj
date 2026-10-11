@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
+    <SupportedOSPlatformVersion>10.0.19045.0</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <!-- Mcp is consumed as a library; its stdio entrypoint is never launched here. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Update="Microsoft.NETCore.App" RuntimeFrameworkVersion="10.0.12" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" RuntimeFrameworkVersion="10.0.12" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <ProjectReference Include="../WinShell.Mcp/WinShell.Mcp.csproj" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;RuntimeFrameworkVersion" />
+    
+    <None Update="HttpThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Licenses/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RequireHttpLicenses" BeforeTargets="BeforeBuild">
+    <ItemGroup>
+      <RequiredHttpLicense Include="HttpThirdPartyNotices.txt;Licenses/DotNetRuntimeLicense.txt;Licenses/DotNetRuntimeThirdPartyNotices.txt;Licenses/AspNetRuntimeLicense.txt;Licenses/AspNetRuntimeThirdPartyNotices.txt;Licenses/ProtectedDataThirdPartyNotices.txt;Licenses/BouncyCastleLicense.txt;Licenses/McpPlatformNotices.txt;Licenses/WindowsSdkLicense.rtf;Licenses/ConPtyThirdPartyNotices.html" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(RequiredHttpLicense.Identity)')" Text="Complete HTTP companion runtime and dependency licenses are required." />
+  </Target>
+  <Target Name="ExcludeUnusedStdioEntrypoint" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.RelativePath)' == 'WinShell.Mcp.exe' or '%(ResolvedFileToPublish.RelativePath)' == 'WinShell.Mcp.runtimeconfig.json' or '%(ResolvedFileToPublish.RelativePath)' == 'WinShell.Mcp.deps.json'" />
+    </ItemGroup>
+  </Target>
+</Project>
