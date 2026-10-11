@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly DockerPage _dockerPage;
     private bool _dockerHandoffNavigation;
     private bool _nativeDialogVisible, _navigationPaneVisible;
+    private bool _navigationFocusQueued;
     private Guid? _requestedFilesProfileId;
     private int _navigationGeneration;
     private readonly SettingsPage _settingsPage;
@@ -95,7 +96,27 @@ public sealed partial class MainWindow : Window
         _navigationPaneVisible = false;
         UpdateTerminalOverlay();
     }
-    private void UpdateTerminalOverlay() => _terminalPage.SetDialogVisible(_nativeDialogVisible || _navigationPaneVisible);
+    private void UpdateTerminalOverlay()
+    {
+        _terminalPage.SetDialogVisible(_nativeDialogVisible || _navigationPaneVisible);
+        if (_closing || _nativeDialogVisible || !_navigationPaneVisible) return;
+        FocusNavigationPane();
+        // Pane opening and ContentDialog dismissal can restore focus later in the current turn.
+        // Keep one deferred request and recheck ownership so a closed/background pane cannot steal it.
+        if (_navigationFocusQueued) return;
+        _navigationFocusQueued = DispatcherQueue.TryEnqueue(() =>
+        {
+            _navigationFocusQueued = false;
+            if (!_closing && !_nativeDialogVisible && _navigationPaneVisible && Navigation.IsPaneOpen)
+                FocusNavigationPane();
+        });
+    }
+    private void FocusNavigationPane()
+    {
+        var item = Navigation.SelectedItem as NavigationViewItem;
+        if (item is null || item.Visibility != Visibility.Visible || !item.IsEnabled) item = ConnectionsItem;
+        item.Focus(FocusState.Keyboard);
+    }
     private void HideTerminalFlyouts()
     {
         if (_terminalPage.FindName("TerminalCommands") is not CommandBar commands) return;
