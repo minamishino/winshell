@@ -39,6 +39,7 @@ public sealed class ConptyShellSession : WinShell.Core.Terminal.IShellSession, W
     public int? ExitCode { get; private set; }
     public int? ProcessId { get; private set; }
     public int NativeCloseCount { get; private set; }
+    public bool ProcessTerminationRequested { get; private set; }
     public int OwnedHandleCount => (_inputPipe is not null ? 1 : 0) + (_outputPipe is not null ? 1 : 0) + (_console is { IsClosed: false } ? 1 : 0) + (_process is { IsClosed: false } ? 1 : 0);
     public int MaximumOutputBlocks => _output.MaximumOwnedBlocks;
     public int OutputBlocks => _output.OwnedBlocks;
@@ -217,8 +218,20 @@ public sealed class ConptyShellSession : WinShell.Core.Terminal.IShellSession, W
         Release(() => _outputPipe?.DisposeLocalCopyOfClientHandle());
         if (_console is { IsClosed: false }) Release(() => { _console.Dispose(); NativeCloseCount++; });
         var terminationError = 0;
-        if (!_running && _process is { IsClosed: false } && !ProcessCompletion.IsCompleted)
-            Release(() => terminationError = ConptyNative.RequestTermination(_process, 1));
+        if (_running && !ProcessCompletion.IsCompleted)
+        {
+            // Closing HPCON signals attached clients; it does not acknowledge their exit.
+            // Keep the sole output drainer alive while allowing normal CTRL_CLOSE cleanup.
+            try { await ProcessCompletion.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+            catch (TimeoutException) { }
+            catch (Exception exception) { failures.Add(exception); }
+        }
+        if (_process is { IsClosed: false } && !ProcessCompletion.IsCompleted)
+            Release(() =>
+            {
+                ProcessTerminationRequested = true;
+                terminationError = ConptyNative.RequestTermination(_process, 1);
+            });
         await Join(OutputCompletion).ConfigureAwait(false);
         Release(_output.ReleaseBuffersAfterProducer);
         await Join(ProcessCompletion).ConfigureAwait(false);
