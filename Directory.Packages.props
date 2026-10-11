@@ -3,6 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Windows.Console.ConPTY" Version="1.25.260930003" />
     <PackageVersion Include="FluentFTP" Version="55.0.0" />
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
