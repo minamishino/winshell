@@ -146,7 +146,10 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         owner.Started = true; owner.SessionId = server.SessionId;
         if (!owner.IsSse && server.SessionId is { } sessionId) _statefulSessions[sessionId] = owner;
         using var running = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, owner.Stopping, _stop.Token);
-        try { await server.RunAsync(running.Token).ConfigureAwait(false); }
+        try
+        {
+            await server.RunAsync(running.Token).ConfigureAwait(false);
+        }
         catch (OperationCanceledException) when (running.IsCancellationRequested) { }
         finally
         {
@@ -284,8 +287,14 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
                 if (_limits.SessionDeleteFailureStatus != 0) { context.Response.StatusCode = _limits.SessionDeleteFailureStatus; return; }
             }
             if (context.Request.Headers["Mcp-Session-Id"].ToString() is { Length: > 0 } sessionId &&
-                _statefulSessions.TryGetValue(sessionId, out var existing) && existing.Stopping.IsCancellationRequested && context.Request.Method != "DELETE")
-            { context.Response.StatusCode = 404; return; }
+                _statefulSessions.TryGetValue(sessionId, out var existing) && context.Request.Method != "DELETE")
+            {
+                if (existing.Stopping.IsCancellationRequested) { context.Response.StatusCode = 404; return; }
+                // Subsequent physical streams belong to this already admitted Stateful session.
+                // Association does not transfer admission ownership to the request's finally;
+                // only tracked official DELETE cleanup releases a started Stateful owner.
+                if (context.Request.Method is "GET" or "POST") context.Features.Set(existing);
+            }
             if (context.Request.Method == "POST")
             {
                 if (context.Request.ContentLength > MaximumMessageBytes) { context.Response.StatusCode = 413; return; }
