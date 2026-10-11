@@ -11,6 +11,7 @@ public sealed partial class DockerPage : Page
     public DockerViewModel ViewModel { get; }
     public Func<DockerTerminalRequest, CancellationToken, Task<bool>>? OpenTerminalAsync { get; set; }
     private Task? _profileLoad;
+    private int _profileSelectionGeneration;
     private bool _closing;
     public DockerPage(IDockerService service, IConnectionProfileRepository profiles, IKnownHostRepository knownHosts, NativeDialogService dialogs)
     {
@@ -29,9 +30,11 @@ public sealed partial class DockerPage : Page
     }
     public async Task SelectProfileAsync(Guid? preferredProfileId)
     {
+        var generation = ++_profileSelectionGeneration;
         await ViewModel.CancelPendingAsync();
+        if (_closing || generation != _profileSelectionGeneration) return;
         await LoadProfilesAsync();
-        if (!_closing && preferredProfileId is Guid profileId && ViewModel.Profiles.FirstOrDefault(profile => profile.Id == profileId) is { } profile)
+        if (!_closing && generation == _profileSelectionGeneration && preferredProfileId is Guid profileId && ViewModel.Profiles.FirstOrDefault(profile => profile.Id == profileId) is { } profile)
             ViewModel.SelectedProfile = profile;
     }
     private async void Refresh_Click(object sender, RoutedEventArgs args) => await ViewModel.RefreshAsync();
@@ -43,5 +46,5 @@ public sealed partial class DockerPage : Page
     private async void Terminal_Click(object sender, RoutedEventArgs args)
     { if (OpenTerminalAsync is { } dispatch) await ViewModel.OpenTerminalAsync(dispatch); }
     private void Cancel_Click(object sender, RoutedEventArgs args) => ViewModel.Cancel();
-    public Task BeginShutdownAsync() { _closing = true; return ViewModel.DisposeAsync().AsTask(); }
+    public Task BeginShutdownAsync() { _closing = true; _profileSelectionGeneration++; return ViewModel.DisposeAsync().AsTask(); }
 }
