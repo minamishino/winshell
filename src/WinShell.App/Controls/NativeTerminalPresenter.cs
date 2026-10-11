@@ -11,7 +11,16 @@ internal sealed class NativeTerminalPresenter : Grid, IDisposable
 {
     private HostWindow? _host;
     public nint Window => _host?.DangerousGetHandle() ?? 0;
-    public void SetVisible(bool visible) { if (_host is not null) ShowWindow(Window, visible ? 4 : 0); }
+    public void SetVisible(bool visible)
+    {
+        if (_host is null) return;
+        // Stop native keyboard admission synchronously while the renderer visibility ACK is pending.
+        // Clear only focus inside this owned subtree; the visible WinUI overlay chooses its target.
+        var focused = GetFocus();
+        if (!visible && (focused == Window || IsChild(Window, focused))) SetFocus(0);
+        EnableWindow(Window, visible);
+        ShowWindow(Window, visible ? 4 : 0);
+    }
     public void CreateHost()
     {
         if (_host is not null) throw new InvalidOperationException("Host already exists.");
@@ -45,5 +54,9 @@ internal sealed class NativeTerminalPresenter : Grid, IDisposable
     [DllImport("user32.dll", EntryPoint="CreateWindowExW", CharSet=CharSet.Unicode, SetLastError=true)] private static extern HostWindow CreateWindowEx(uint extended, string name, string? title, uint style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool DestroyWindow(nint window);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
+    [DllImport("user32.dll")] private static extern bool EnableWindow(nint window, bool enabled);
+    [DllImport("user32.dll")] private static extern nint GetFocus();
+    [DllImport("user32.dll")] private static extern nint SetFocus(nint window);
+    [DllImport("user32.dll")] private static extern bool IsChild(nint parent, nint window);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
 }

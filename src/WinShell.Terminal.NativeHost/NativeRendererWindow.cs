@@ -23,6 +23,7 @@ internal sealed class NativeRendererWindow
     private RendererFrame? _pending;
     private TaskCompletionSource? _consumed;
     private bool _closing;
+    private bool _visible, _inputReady;
     private Exception? _failure;
     private int _inputCount;
     private char? _pendingHighSurrogate;
@@ -152,9 +153,12 @@ internal sealed class NativeRendererWindow
                 break;
             case RendererFrameType.Focus:
                 if (frame.Payload.Length != 1) throw new InvalidDataException();
-                EnableWindow(_window, true);
-                if (frame.Payload.Span[0] != 0) SetFocus(_window);
-                TerminalSetFocused(_terminal, frame.Payload.Span[0] != 0);
+                _inputReady = true;
+                EnableWindow(_window, _visible);
+                var focused = frame.Payload.Span[0] != 0 && _visible;
+                if (focused) SetFocus(_window);
+                else if (GetFocus() == _window) SetFocus(0);
+                TerminalSetFocused(_terminal, focused);
                 break;
             case RendererFrameType.Resize:
                 if (frame.Payload.Length != 8) throw new InvalidDataException();
@@ -167,7 +171,14 @@ internal sealed class NativeRendererWindow
                 break;
             case RendererFrameType.Visibility:
                 if (frame.Payload.Length != 1) throw new InvalidDataException();
-                ShowWindow(_window, frame.Payload.Span[0] == 0 ? 0 : 4);
+                _visible = frame.Payload.Span[0] != 0;
+                if (!_visible)
+                {
+                    if (GetFocus() == _window) SetFocus(0);
+                    TerminalSetFocused(_terminal, false);
+                }
+                EnableWindow(_window, _visible && _inputReady);
+                ShowWindow(_window, _visible ? 4 : 0);
                 break;
             default: throw new InvalidDataException("Unsupported frame for renderer state.");
         }
@@ -321,6 +332,7 @@ internal sealed class NativeRendererWindow
     [DllImport("user32.dll")] private static extern bool AreDpiAwarenessContextsEqual(nint first, nint second);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
     [DllImport("user32.dll")] private static extern bool EnableWindow(nint window, bool enabled);
+    [DllImport("user32.dll")] private static extern nint GetFocus();
     [DllImport("comctl32.dll", SetLastError=true)] private static extern bool SetWindowSubclass(nint window, SubclassCallback callback, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("uiautomationcore.dll")] private static extern int UiaDisconnectAllProviders();

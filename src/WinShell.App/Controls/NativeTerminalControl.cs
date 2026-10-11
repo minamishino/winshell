@@ -239,7 +239,7 @@ public sealed class NativeTerminalControl : UserControl
                 await _session!.ResizeAsync(dimensions.Columns, dimensions.Rows, _stop.Token);
                 await _renderer.SetVisibleAsync(state.Visible, _stop.Token);
                 // Once focus enters the child, only its own WM_KILLFOCUS may clear native focus.
-                if (state.Focused) await _renderer.SetFocusedAsync(true, _stop.Token);
+                if (state.Visible && state.Focused) await _renderer.SetFocusedAsync(true, _stop.Token);
             }
         }
         catch (Exception error) when (_stop.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException) { }
