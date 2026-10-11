@@ -1,0 +1,3 @@
+# Preserve official runtime license and notice bytes through checkout and publishing.
+Licenses/** -text
+HttpThirdPartyNotices.txt -text
