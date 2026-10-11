@@ -11,9 +11,13 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- HTTP companion is deployed as a separate process; no assembly reference enters App. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../WinShell.Mcp.Http/LocalMcpHttpTokenStore.cs" Link="Features/Mcp/LocalMcpHttpTokenStore.cs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
@@ -24,7 +28,24 @@
     <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
     <ProjectReference Include="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" ReferenceOutputAssembly="false" AdditionalProperties="Platform=x64" />
     <ProjectReference Include="../WinShell.Mcp/WinShell.Mcp.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" AdditionalProperties="Platform=AnyCPU" />
+    <ProjectReference Include="../WinShell.Mcp.Http/WinShell.Mcp.Http.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;RuntimeFrameworkVersion;PublishDir;PublishUrl" AdditionalProperties="Platform=AnyCPU" />
   </ItemGroup>
+  <Target Name="CopyMcpHttpCompanion" AfterTargets="Build">
+    <PropertyGroup><McpHttpPublishDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/obj/McpHttp/$(Configuration)/'))</McpHttpPublishDirectory></PropertyGroup>
+    <MSBuild Projects="../WinShell.Mcp.Http/WinShell.Mcp.Http.csproj" Targets="Publish" Properties="Configuration=$(Configuration);Platform=AnyCPU;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(McpHttpPublishDirectory)" RemoveProperties="RuntimeFrameworkVersion;PublishUrl;TargetFramework">
+    </MSBuild>
+    <ItemGroup><McpHttpRequiredFiles Include="$(McpHttpPublishDirectory)WinShell.Mcp.Http.exe;$(McpHttpPublishDirectory)WinShell.Mcp.Http.runtimeconfig.json;$(McpHttpPublishDirectory)WinShell.Mcp.Http.deps.json;$(McpHttpPublishDirectory)HttpThirdPartyNotices.txt;$(McpHttpPublishDirectory)Licenses/DotNetRuntimeLicense.txt;$(McpHttpPublishDirectory)Licenses/DotNetRuntimeThirdPartyNotices.txt;$(McpHttpPublishDirectory)Licenses/AspNetRuntimeLicense.txt;$(McpHttpPublishDirectory)Licenses/AspNetRuntimeThirdPartyNotices.txt;$(McpHttpPublishDirectory)Licenses/ProtectedDataThirdPartyNotices.txt;$(McpHttpPublishDirectory)Licenses/BouncyCastleLicense.txt;$(McpHttpPublishDirectory)Licenses/McpPlatformNotices.txt;$(McpHttpPublishDirectory)Licenses/WindowsSdkLicense.rtf;$(McpHttpPublishDirectory)Licenses/ConPtyThirdPartyNotices.html" /></ItemGroup>
+    <Error Condition="!Exists('%(McpHttpRequiredFiles.Identity)')" Text="Complete self-contained MCP HTTP companion and licenses required: %(McpHttpRequiredFiles.Identity)" />
+    <ItemGroup><McpHttpCompanionFiles Include="$(McpHttpPublishDirectory)**/*" /></ItemGroup>
+    <Copy SourceFiles="@(McpHttpCompanionFiles)" DestinationFiles="@(McpHttpCompanionFiles->'$(OutDir)McpHttp/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+  </Target>
+  <Target Name="IncludeMcpHttpCompanionInPublish" BeforeTargets="ComputeFilesToPublish">
+    <Error Condition="!Exists('$(OutDir)McpHttp/WinShell.Mcp.Http.exe') or !Exists('$(OutDir)McpHttp/HttpThirdPartyNotices.txt') or !Exists('$(OutDir)McpHttp/Licenses/AspNetRuntimeThirdPartyNotices.txt')" Text="Build complete MCP HTTP companion before publishing App." />
+    <ItemGroup>
+      <McpHttpFilesToPublish Include="$(OutDir)McpHttp/**/*" />
+      <ResolvedFileToPublish Include="@(McpHttpFilesToPublish)" RelativePath="McpHttp/%(McpHttpFilesToPublish.RecursiveDir)%(McpHttpFilesToPublish.Filename)%(McpHttpFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
   <Target Name="CopyNativeRenderer" AfterTargets="Build">
     <ItemGroup><NativeRendererFiles Include="../WinShell.Terminal.NativeHost/bin/x64/$(Configuration)/$(TargetFramework)/win-x64/*" /></ItemGroup>
     <Error Condition="'@(NativeRendererFiles)' == ''" Text="Native renderer output must be built before packaging the App." />
