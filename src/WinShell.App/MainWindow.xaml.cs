@@ -54,6 +54,7 @@ public sealed partial class MainWindow : Window
         _tunnelsPage = tunnelsPage;
         _settingsPage = settingsPage;
         InitializeComponent();
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "winshell.ico"));
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
         TerminalHost.Content = terminalPage;

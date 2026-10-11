@@ -14,7 +14,11 @@
     <!-- HTTP companion is deployed as a separate process; no assembly reference enters App. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\winshell.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\winshell.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="../WinShell.Mcp.Http/LocalMcpHttpTokenStore.cs" Link="Features/Mcp/LocalMcpHttpTokenStore.cs" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
