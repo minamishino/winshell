@@ -2,98 +2,100 @@
     x:Class="WinShell.App.Features.Connections.ConnectionProfilesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:profiles="using:WinShell.Core.Profiles">
-    <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="16">
-        <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup>
-                <VisualState x:Name="Wide">
-                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="900"/></VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="ListColumn.Width" Value="2*"/>
-                        <Setter Target="EditorColumn.Width" Value="3*"/>
-                        <Setter Target="ListRow.Height" Value="*"/>
-                        <Setter Target="EditorRow.Height" Value="0"/>
-                        <Setter Target="ProfileEditor.(Grid.Column)" Value="1"/>
-                        <Setter Target="ProfileEditor.(Grid.Row)" Value="0"/>
-                        <Setter Target="ProfilesList.MaxHeight" Value="10000"/>
-                    </VisualState.Setters>
-                </VisualState>
-            </VisualStateGroup>
-        </VisualStateManager.VisualStateGroups>
+    xmlns:connections="using:WinShell.App.Features.Connections">
+    <Page.Resources>
+        <CollectionViewSource x:Name="GroupedProfilesSource" IsSourceGrouped="True"/>
+        <Style x:Key="ConnectionRowButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+    </Page.Resources>
+    <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="20" MaxWidth="1280">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <StackPanel Spacing="4">
-            <TextBlock Text="连接" Style="{StaticResource WinShellPageTitleStyle}"/>
-            <TextBlock Text="双击连接打开终端或文件；选择一项编辑配置。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-        </StackPanel>
-        <CommandBar Grid.Row="1" DefaultLabelPosition="Right" AutomationProperties.Name="连接操作">
-            <CommandBar.Content><TextBox Width="220" PlaceholderText="搜索连接" ToolTipService.ToolTip="搜索名称、分组或主机" AutomationProperties.Name="搜索连接" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/></CommandBar.Content>
-            <AppBarButton Icon="Add" Label="新建" Click="NewProfile_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="新建连接"/>
-            <AppBarButton Icon="Play" Label="打开" Click="ConnectSsh_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="打开所选连接的终端或文件"/>
-            <CommandBar.SecondaryCommands>
-                <AppBarButton Icon="Refresh" Label="重新加载" Click="Reload_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="重新加载连接配置"/>
-                <AppBarButton Icon="Document" Label="打开详情" Click="OpenDetails_Click" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="打开所选连接的只读详情"/>
-            </CommandBar.SecondaryCommands>
-        </CommandBar>
-        <Grid Grid.Row="2" ColumnSpacing="24">
-            <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="*"/><ColumnDefinition x:Name="EditorColumn" Width="0"/></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition x:Name="ListRow" Height="Auto"/><RowDefinition x:Name="EditorRow" Height="*"/></Grid.RowDefinitions>
-            <ListView IsEnabled="{Binding CanEdit}" x:Name="ProfilesList" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
-                      SelectionChanged="ProfilesList_SelectionChanged" DoubleTapped="ProfilesList_DoubleTapped" KeyDown="ProfilesList_KeyDown" SelectionMode="Single" MaxHeight="160" AutomationProperties.Name="连接配置列表">
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Spacing="4">
+                <TextBlock Text="连接" Style="{StaticResource WinShellPageTitleStyle}" FontSize="28"/>
+                <TextBlock Text="选择连接，开始工作。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
+            </StackPanel>
+            <Button x:Name="NewProfileButton" Grid.Column="1" VerticalAlignment="Center" IsEnabled="{Binding CanEdit}" Click="NewProfile_Click" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.Name="新建连接">
+                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="14"/><TextBlock Text="新建连接"/></StackPanel>
+            </Button>
+        </Grid>
+        <Grid Grid.Row="1" ColumnSpacing="12" SizeChanged="SearchToolbar_SizeChanged">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <AutoSuggestBox x:Name="SearchInput" MaxWidth="460" HorizontalAlignment="Left" PlaceholderText="搜索名称、地址或分组" QueryIcon="Find" AutomationProperties.Name="搜索连接" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+            <Button Grid.Column="1" IsEnabled="{Binding CanEdit}" Click="Reload_Click" Style="{StaticResource ConnectionRowButtonStyle}" AutomationProperties.Name="重新加载连接" ToolTipService.ToolTip="重新加载"><FontIcon Glyph="&#xE72C;" FontSize="16"/></Button>
+        </Grid>
+        <Grid Grid.Row="2">
+            <ListView x:Name="ProfilesList" IsEnabled="{Binding CanEdit}" SelectionMode="Single"
+                      SelectionChanged="ProfilesList_SelectionChanged" DoubleTapped="ProfilesList_DoubleTapped" KeyDown="ProfilesList_KeyDown" AutomationProperties.Name="连接配置列表">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,2"/></Style>
+                </ListView.ItemContainerStyle>
+                <ListView.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.HeaderTemplate>
+                            <DataTemplate x:DataType="connections:ConnectionProfileGroupViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="12,12,0,8">
+                                    <FontIcon Glyph="&#xE8B7;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{x:Bind Name}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                                    <TextBlock Text="{x:Bind Count}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </GroupStyle.HeaderTemplate>
+                    </GroupStyle>
+                </ListView.GroupStyle>
                 <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="profiles:ConnectionProfile">
-                        <StackPanel Padding="4,8" Spacing="4">
-                            <TextBlock Text="{x:Bind DisplayName}" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
-                            <TextBlock Text="{x:Bind Host}" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{x:Bind GroupName}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
+                    <DataTemplate x:DataType="connections:ConnectionProfileListItemViewModel">
+                        <Grid Padding="12" ColumnSpacing="12" SizeChanged="ProfileRow_SizeChanged">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE7F4;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Endpoint}">
+                                <TextBlock Text="{x:Bind DisplayName}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{x:Bind Endpoint}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Border x:Name="ProtocolBadge" Grid.Column="2" VerticalAlignment="Center" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,1">
+                                <TextBlock Text="{x:Bind ProtocolLabel}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Border>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button x:Name="OpenProfileButton" Tag="{x:Bind Profile}" Click="OpenRow_Click" AutomationProperties.Name="{x:Bind OpenActionName}" ToolTipService.ToolTip="打开终端或文件">
+                                    <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE768;" FontSize="12"/><TextBlock x:Name="OpenLabel" Text="打开" FontSize="12"/></StackPanel>
+                                </Button>
+                                <Button Tag="{x:Bind Profile}" Click="EditProfile_Click" Style="{StaticResource ConnectionRowButtonStyle}" AutomationProperties.Name="{x:Bind EditActionName}" ToolTipService.ToolTip="编辑连接"><FontIcon Glyph="&#xE70F;" FontSize="14"/></Button>
+                                <Button Style="{StaticResource ConnectionRowButtonStyle}" AutomationProperties.Name="{x:Bind MoreActionName}" ToolTipService.ToolTip="更多操作">
+                                    <FontIcon Glyph="&#xE712;" FontSize="16"/>
+                                    <Button.Flyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="配置详情" Tag="{x:Bind Profile}" Click="OpenDetails_Click"/>
+                                            <MenuFlyoutItem Text="检查凭据状态" Tag="{x:Bind Profile}" Click="CheckCredential_Click"/>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="删除凭据" Tag="{x:Bind Profile}" Click="DeleteCredential_Click"/>
+                                            <MenuFlyoutItem Text="删除连接" Tag="{x:Bind Profile}" Click="DeleteProfile_Click"/>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <ScrollViewer x:Name="ProfileEditor" IsEnabled="{Binding CanEdit}" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <Border Style="{StaticResource WinShellCardStyle}">
-                <StackPanel x:Name="EditorPanel" Spacing="16">
-                    <TextBlock x:Name="EditorHeading" Text="新建连接" Style="{StaticResource WinShellSectionTitleStyle}"/>
-                    <TextBox Header="连接名称" AutomationProperties.Name="连接名称" MaxLength="128" Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBox Header="分组" AutomationProperties.Name="分组" MaxLength="128" Text="{Binding GroupName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <ComboBox x:Name="ProtocolBox" Header="协议" AutomationProperties.Name="协议" HorizontalAlignment="Stretch">
-                        <ComboBoxItem x:Name="SshProtocolItem" Content="SSH"/>
-                        <ComboBoxItem x:Name="FtpProtocolItem" Content="FTP"/>
-                        <ComboBoxItem x:Name="FtpsProtocolItem" Content="FTPS"/>
-                    </ComboBox>
-                    <ComboBox x:Name="FtpsModeBox" Header="FTPS 模式" AutomationProperties.Name="FTPS 模式" SelectionChanged="FtpsModeBox_SelectionChanged" HorizontalAlignment="Stretch" Visibility="Collapsed">
-                        <ComboBoxItem x:Name="ExplicitFtpsItem" Content="显式 TLS（AUTH TLS）"/>
-                        <ComboBoxItem x:Name="ImplicitFtpsItem" Content="隐式 TLS"/>
-                    </ComboBox>
-                    <TextBox Header="主机" AutomationProperties.Name="主机" MaxLength="253" Text="{Binding Host, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBox Header="端口" AutomationProperties.Name="端口" MaxLength="5" InputScope="Number" Text="{Binding PortText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBox Header="用户名" AutomationProperties.Name="用户名" MaxLength="128" Text="{Binding UserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <ComboBox x:Name="AuthenticationBox" Header="认证方式" AutomationProperties.Name="认证方式" HorizontalAlignment="Stretch">
-                        <ComboBoxItem x:Name="PasswordAuthenticationItem" Content="密码"/>
-                        <ComboBoxItem x:Name="PrivateKeyAuthenticationItem" Content="私钥"/>
-                        <ComboBoxItem x:Name="AnonymousAuthenticationItem" Content="匿名（FTP / FTPS）"/>
-                    </ComboBox>
-                    <TextBox x:Name="PrivateKeyInput" Header="私钥绝对路径" AutomationProperties.Name="私钥绝对路径" Text="{Binding PrivateKeyPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <PasswordBox x:Name="SecretInput" Header="密码 / 私钥口令（可选）" AutomationProperties.Name="密码或私钥口令" MaxLength="2560"/>
-                    <TextBlock Text="填写凭据将随配置一起保存到 Windows 凭据管理器；留空保持已有凭据。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="保存" Click="SaveProfile_Click" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.Name="保存连接及非空凭据"/>
-                    </StackPanel>
-                    <Expander Header="凭据与删除操作" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                    <StackPanel Spacing="8">
-                        <Button x:Name="SaveCredentialButton" Content="仅保存 / 替换凭据" Click="SaveCredential_Click"/>
-                        <Button x:Name="CheckCredentialButton" Content="检查凭据状态" Click="CheckCredential_Click"/>
-                        <Button x:Name="DeleteCredentialButton" Content="删除凭据" Click="DeleteCredential_Click"/>
-                        <Button x:Name="DeleteProfileButton" Content="删除连接" Click="DeleteProfile_Click"/>
-                    </StackPanel>
-                    </Expander>
-                </StackPanel>
-                </Border>
-            </ScrollViewer>
+            <StackPanel x:Name="EmptyLibrary" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320">
+                <TextBlock x:Name="EmptyTitle" Text="还没有连接" FontSize="18" HorizontalAlignment="Center"/>
+                <TextBlock x:Name="EmptyDescription" Text="新建一个连接，保存后即可打开终端或文件。" Style="{StaticResource WinShellPageDescriptionStyle}" TextAlignment="Center"/>
+            </StackPanel>
         </Grid>
-        <StackPanel Grid.Row="3" Spacing="4">
-            <ProgressBar IsIndeterminate="{Binding IsBusy}" Height="3" AutomationProperties.Name="配置操作进度"/>
-            <TextBlock Text="{Binding ErrorMessage}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource WinShellStatusTextStyle}"/>
+        <StackPanel Grid.Row="3" Spacing="8">
+            <ProgressBar x:Name="BusyProgress" Visibility="Collapsed" IsIndeterminate="True" Height="3" AutomationProperties.Name="连接操作进度"/>
+            <InfoBar x:Name="OperationError" Severity="Error" IsClosable="False"/>
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Grid.Column="1" Text="Enter 打开 · 双击连接打开" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+            </Grid>
         </StackPanel>
     </Grid>
 </Page>

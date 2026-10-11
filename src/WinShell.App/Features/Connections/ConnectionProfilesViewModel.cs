@@ -15,6 +15,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     private readonly ICredentialStore _credentials;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ProfileCollection _visibleProfiles = new();
+    private readonly ObservableCollection<ConnectionProfileGroupViewModel> _profileGroups = [];
     private readonly List<ConnectionProfile> _allProfiles = [];
     private Task _activeOperation = Task.CompletedTask;
     private Task? _disposal;
@@ -28,9 +29,11 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         _repository = repository;
         _credentials = credentials;
         Profiles = new(_visibleProfiles);
+        ProfileGroups = new(_profileGroups);
     }
 
     public ReadOnlyObservableCollection<ConnectionProfile> Profiles { get; }
+    public ReadOnlyObservableCollection<ConnectionProfileGroupViewModel> ProfileGroups { get; }
     public event EventHandler<Guid>? ProfileDeleted;
     // The window binds this to the actual terminal page; the lease spans every repository/vault write.
     public Func<Guid, CancellationToken, Task<IDisposable>>? BeginTerminalProfileMutationAsync { get; set; }
@@ -238,6 +241,11 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
             profile.GroupName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
             profile.Host.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray());
         SelectedProfile = _visibleProfiles.FirstOrDefault(profile => profile.Id == selectedId);
+        _profileGroups.Clear();
+        foreach (var group in _visibleProfiles.GroupBy(profile => string.IsNullOrWhiteSpace(profile.GroupName) ? "未分组" : profile.GroupName.Trim())
+                     .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase))
+            _profileGroups.Add(new(group.Key, group.OrderBy(profile => profile.DisplayName, StringComparer.CurrentCultureIgnoreCase)));
+        OnPropertyChanged(nameof(ProfileGroups));
     }
 
     public ValueTask DisposeAsync()
