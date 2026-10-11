@@ -123,28 +123,17 @@ internal sealed class NativeRendererWindow
                 _selectionReply = CopySelection();
                 break;
             case RendererFrameType.Theme:
-                if (frame.Payload.Length is not (5 or 13)) throw new InvalidDataException();
-                var dpi = BitConverter.ToInt32(frame.Payload.Span[1..]);
-                if (dpi is < 96 or > 960) throw new InvalidDataException("Unsupported DPI.");
-                var dark = frame.Payload.Span[0] != 0;
-                var backgroundColor = dark ? 0x0C0C0Cu : 0xFFFFFFu;
-                var foregroundColor = dark ? 0xF2F2F2u : 0x0C0C0Cu;
-                if (frame.Payload.Length == 13)
-                {
-                    backgroundColor = BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload.Span[5..]);
-                    foregroundColor = BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload.Span[9..]);
-                    if (frame.Payload.Span[0] > 1 || backgroundColor > 0xFFFFFF || foregroundColor > 0xFFFFFF)
-                        throw new InvalidDataException("Unsupported explicit theme colors.");
-                }
+                var appearance = RendererThemePayload.Decode(frame.Payload.Span);
+                var dpi = appearance.Dpi;
                 var theme = new TerminalTheme
                 {
-                    DefaultBackground = backgroundColor,
-                    DefaultForeground = foregroundColor,
+                    DefaultBackground = appearance.BackgroundColor,
+                    DefaultForeground = appearance.ForegroundColor,
                     DefaultSelectionBackground = 0x808080,
-                    CursorStyle = CaretStyle.BlinkingBar,
+                    CursorStyle = (CaretStyle)appearance.CursorStyle,
                     ColorTable = [0x0C0C0C,0x1F0FC5,0x0EA113,0x009CC1,0xDA3700,0x981788,0xDD963A,0xCCCCCC,0x767676,0x5648E7,0x0CC616,0xA5F1F9,0xFF783B,0x9E00B4,0xD6D661,0xF2F2F2]
                 };
-                TerminalSetTheme(_terminal, theme, "Cascadia Code", 12, dpi);
+                TerminalSetTheme(_terminal, theme, appearance.FontFamily == 0 ? "Cascadia Code" : "Consolas", appearance.FontSize, dpi);
                 TerminalDpiChanged(_terminal, dpi);
                 Marshal.ThrowExceptionForHR(TerminalTriggerResize(_terminal, 640, 400, out var baseline));
                 _maximumWidth = Math.Max(1, 640 / (baseline.X + 1)) * 400;
