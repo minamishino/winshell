@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using WinShell.Core.Profiles;
 
 namespace WinShell.App.Features.Connections;
@@ -11,6 +12,7 @@ public sealed partial class ConnectionProfilesPage : Page
     public ConnectionProfilesViewModel ViewModel { get; }
     public event EventHandler<ConnectionProfile>? OpenProfileRequested;
     public event EventHandler<ConnectionProfile>? ConnectSshRequested;
+    public event EventHandler<ConnectionProfile>? OpenFilesRequested;
     private ConnectionProfileEditorViewModel _editor = new(null);
     private readonly HashSet<Task> _pendingActions = [];
     private readonly List<Exception> _shutdownFailures = [];
@@ -124,6 +126,7 @@ public sealed partial class ConnectionProfilesPage : Page
         if (ReferenceEquals(AuthenticationBox.SelectedItem, PasswordAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.Password;
         else if (ReferenceEquals(AuthenticationBox.SelectedItem, PrivateKeyAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.PrivateKey;
         else if (ReferenceEquals(AuthenticationBox.SelectedItem, AnonymousAuthenticationItem)) _editor.AuthenticationMethod = AuthenticationMethod.Anonymous;
+        UpdateAuthenticationControls();
     }
     private void UpdateProtocolControls()
     {
@@ -131,6 +134,13 @@ public sealed partial class ConnectionProfilesPage : Page
         FtpsModeBox.SelectedItem = _editor.FtpsMode == FtpsMode.Implicit ? ImplicitFtpsItem : ExplicitFtpsItem;
         AnonymousAuthenticationItem.IsEnabled = _editor.Protocol != ConnectionProtocol.Ssh;
         PrivateKeyAuthenticationItem.IsEnabled = _editor.Protocol == ConnectionProtocol.Ssh;
+        UpdateAuthenticationControls();
+    }
+    private void UpdateAuthenticationControls()
+    {
+        PrivateKeyInput.Visibility = _editor.AuthenticationMethod == AuthenticationMethod.PrivateKey ? Visibility.Visible : Visibility.Collapsed;
+        SecretInput.IsEnabled = _editor.AuthenticationMethod != AuthenticationMethod.Anonymous;
+        if (!SecretInput.IsEnabled) SecretInput.Password = "";
     }
     private void FtpsModeBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
@@ -166,19 +176,38 @@ public sealed partial class ConnectionProfilesPage : Page
         ConnectionProfile profile;
         try { profile = _editor.BuildProfile(); }
         catch (ArgumentException exception) { ViewModel.ReportValidationError(exception.Message); return; }
-        await ViewModel.SaveProfileAsync(profile, CancellationToken.None);
-        if (!_closing && ViewModel.ErrorMessage is null && ViewModel.SelectedProfile?.Id == profile.Id) SetEditor(profile);
+        byte[]? secretBytes = null;
+        try
+        {
+            var password = SecretInput.Password;
+            SecretInput.Password = "";
+            if (Encoding.UTF8.GetByteCount(password) > 2560)
+            { ViewModel.ReportValidationError("凭据的 UTF-8 长度不能超过 2560 字节。"); return; }
+            secretBytes = Encoding.UTF8.GetBytes(password);
+            password = "";
+            await ViewModel.SaveProfileWithCredentialAsync(profile, secretBytes, CancellationToken.None);
+            // A credential failure still commits metadata. Keep the saved editor identity and clear input.
+            if (!_closing && ViewModel.SelectedProfile == profile) SetEditor(profile);
+        }
+        finally { if (secretBytes is not null) CryptographicOperations.ZeroMemory(secretBytes); }
     });
     private Task<bool> ConfirmDeletionAsync(string title, string content) =>
         _dialogs.ConfirmAsync(XamlRoot, title, content, "删除", _dialogCancellation.Token);
-    private void ConnectSsh_Click(object sender, RoutedEventArgs args)
+    private void ConnectSsh_Click(object sender, RoutedEventArgs args) => OpenSelectedProfile();
+    private void ProfilesList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => OpenSelectedProfile();
+    private void ProfilesList_KeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (_closing) return;
+        if (args.Key != Windows.System.VirtualKey.Enter) return;
+        args.Handled = true;
+        OpenSelectedProfile();
+    }
+    private void OpenSelectedProfile()
+    {
+        if (_closing || !ViewModel.CanEdit) return;
         if (ViewModel.SelectedProfile is not { } profile)
-            ViewModel.ReportValidationError("请先从列表选择一个已保存的 SSH 配置。");
-        else if (profile.Protocol != ConnectionProtocol.Ssh)
-            ViewModel.ReportValidationError("连接 SSH 仅支持 SSH 配置，FTP / FTPS 请使用远端文件页。");
-        else ConnectSshRequested?.Invoke(this, profile);
+            ViewModel.ReportValidationError("请先从列表选择一个已保存的连接。");
+        else if (profile.Protocol == ConnectionProtocol.Ssh) ConnectSshRequested?.Invoke(this, profile);
+        else OpenFilesRequested?.Invoke(this, profile);
     }
     private async void DeleteProfile_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
     {

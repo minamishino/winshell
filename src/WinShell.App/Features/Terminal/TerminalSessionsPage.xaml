@@ -2,13 +2,27 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:terminal="using:WinShell.App.Features.Terminal">
-    <Grid Padding="16" RowSpacing="8">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="8">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <CommandBar x:Name="TerminalCommands" DefaultLabelPosition="Right" Opened="Popup_Opened" Closed="Popup_Closed" AutomationProperties.Name="终端操作">
-            <AppBarButton Icon="Add" Label="新建 PowerShell" Click="PowerShell_Click" AutomationProperties.Name="新建 PowerShell 终端"/>
+            <AppBarButton Icon="Add" Label="其他会话" AutomationProperties.Name="其他终端会话">
+                <AppBarButton.Flyout>
+                    <Flyout x:Name="NewSessionFlyout" Opened="Popup_Opened" Closed="Popup_Closed">
+                        <StackPanel Spacing="16" MinWidth="240" MaxWidth="320">
+                            <TextBlock Text="新建会话" Style="{StaticResource WinShellSectionTitleStyle}"/>
+                            <Button Content="PowerShell" Click="PowerShell_Click" HorizontalAlignment="Stretch" AutomationProperties.Name="新建 PowerShell 终端"/>
+                            <StackPanel Spacing="8">
+                                <ComboBox x:Name="Distributions" Header="WSL 发行版" PlaceholderText="选择发行版" HorizontalAlignment="Stretch" DropDownOpened="Popup_Opened" DropDownClosed="Popup_Closed" AutomationProperties.Name="WSL 发行版"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="打开 WSL" Click="Wsl_Click" AutomationProperties.Name="打开所选 WSL 发行版"/>
+                                    <Button Content="刷新" Click="RefreshWsl_Click" AutomationProperties.Name="刷新 WSL 发行版"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="SSH 从连接页打开，最多同时运行两个终端。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
+                        </StackPanel>
+                    </Flyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
             <AppBarButton Icon="Copy" Label="复制" Click="Copy_Click" AutomationProperties.Name="复制终端选区"/>
             <AppBarButton Icon="Paste" Label="粘贴" Click="Paste_Click" AutomationProperties.Name="粘贴到终端"/>
             <CommandBar.SecondaryCommands>
@@ -16,31 +30,23 @@
                 <AppBarButton Icon="Cancel" Label="关闭 / 取消" Click="Close_Click" AutomationProperties.Name="关闭或取消当前终端"/>
             </CommandBar.SecondaryCommands>
         </CommandBar>
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <ComboBox x:Name="Distributions" PlaceholderText="WSL 发行版" HorizontalAlignment="Stretch" DropDownOpened="Popup_Opened" DropDownClosed="Popup_Closed" AutomationProperties.Name="WSL 发行版" ToolTipService.ToolTip="最多两个终端；SSH 从连接配置中打开。"/>
-            <Button Grid.Column="1" Content="刷新" Click="RefreshWsl_Click" AutomationProperties.Name="刷新 WSL 发行版"/>
-            <Button Grid.Column="2" Content="打开 WSL" Click="Wsl_Click" AutomationProperties.Name="打开所选 WSL 发行版"/>
-        </Grid>
-        <TabView x:Name="SessionTabs" Grid.Row="2" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
+        <TabView x:Name="SessionTabs" Grid.Row="1" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
             TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
             TabCloseRequested="Tabs_CloseRequested" SelectionChanged="Tabs_SelectionChanged" AutomationProperties.Name="交互终端标签">
             <TabView.TabItemTemplate>
-                <DataTemplate x:DataType="terminal:TerminalTabViewModel">
-                    <TabViewItem Header="{Binding Title}" IsClosable="True" AutomationProperties.Name="{Binding Title}"/>
-                </DataTemplate>
+                <DataTemplate x:DataType="terminal:TerminalTabViewModel"><TabViewItem Header="{Binding Title}" IsClosable="True" AutomationProperties.Name="{Binding Title}"/></DataTemplate>
             </TabView.TabItemTemplate>
         </TabView>
-        <Grid x:Name="TerminalHosts" Grid.Row="3" MinHeight="160">
-            <TextBlock x:Name="EmptyMessage" Text="打开 SSH、PowerShell 或 WSL，开始使用交互终端。" TextWrapping="Wrap" Margin="16"/>
+        <Grid x:Name="TerminalHosts" Grid.Row="2" MinHeight="160" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <TextBlock x:Name="EmptyMessage" Text="开始使用终端&#10;新建 PowerShell 或 WSL，或从连接页打开 SSH。" TextWrapping="Wrap" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
-        <ScrollViewer Grid.Row="3" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
+        <ScrollViewer Grid.Row="2" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
             <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
         </ScrollViewer>
-        <StackPanel Grid.Row="4" Spacing="4">
-            <TextBlock Text="{Binding SelectedTab.TargetDescription}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
-            <TextBlock Text="{Binding SelectedTab.Status}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
-            <TextBlock x:Name="Feedback" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+        <StackPanel Grid.Row="3" Spacing="4">
+            <TextBlock Text="{Binding SelectedTab.TargetDescription}" Style="{StaticResource WinShellPageDescriptionStyle}" IsTextSelectionEnabled="True"/>
+            <TextBlock Text="{Binding SelectedTab.Status}" Style="{StaticResource WinShellStatusTextStyle}"/>
+            <TextBlock x:Name="Feedback" Style="{StaticResource WinShellStatusTextStyle}"/>
         </StackPanel>
     </Grid>
 </Page>

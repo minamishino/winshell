@@ -72,6 +72,48 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         StatusMessage = "连接配置已保存。凭据需要单独保存。";
     }, cancellationToken);
 
+    public Task SaveProfileWithCredentialAsync(ConnectionProfile profile, ReadOnlyMemory<byte> secretUtf8, CancellationToken cancellationToken)
+    {
+        if (secretUtf8.Length > 2560)
+            return RunAsync(_ => throw new ArgumentException("凭据的 UTF-8 长度不能超过 2560 字节。"), cancellationToken);
+        if (_disposed) return Task.FromException(new ObjectDisposedException(nameof(ConnectionProfilesViewModel)));
+        if (IsBusy) return Task.CompletedTask;
+        var ownedSecret = secretUtf8.ToArray();
+        return RunAsync(async token =>
+        {
+            var errors = ConnectionProfileValidator.Validate(profile);
+            if (errors.Count != 0) throw new ArgumentException(string.Join(Environment.NewLine, errors.Select(error => error.Message)));
+            using var mutation = await BeginMutationAsync(profile.Id, token);
+            await _repository.UpsertAsync(profile, token);
+            if (!_disposed)
+            {
+                var index = _allProfiles.FindIndex(item => item.Id == profile.Id);
+                if (index < 0) _allProfiles.Add(profile); else _allProfiles[index] = profile;
+                ApplySearch();
+                SelectedProfile = profile;
+            }
+            if (ownedSecret.Length == 0)
+            {
+                if (!_disposed) StatusMessage = "连接配置已保存；未修改已有凭据。";
+                return;
+            }
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                await _credentials.WriteAsync(profile.Id, ownedSecret, token);
+                if (!_disposed) StatusMessage = "连接配置和凭据已保存。";
+            }
+            catch (Exception exception)
+            {
+                if (!_disposed)
+                {
+                    StatusMessage = null;
+                    ErrorMessage = $"配置已保存；凭据更新未能完成或结果尚未确认。请检查凭据状态后重试。{DescribeFailure(exception)}";
+                }
+            }
+        }, cancellationToken, () => CryptographicOperations.ZeroMemory(ownedSecret));
+    }
+
     public Task DeleteProfileAsync(Guid profileId, CancellationToken cancellationToken) => RunAsync(async token =>
     {
         RequireSavedProfile(profileId);

@@ -3,8 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-        <StackPanel Padding="24" Spacing="12">
-            <TextBlock Text="配置详情" Style="{ThemeResource SubtitleTextBlockStyle}"/>
+        <StackPanel Padding="{StaticResource WinShellPagePadding}" Spacing="16">
+            <TextBlock Text="配置详情" Style="{StaticResource WinShellPageTitleStyle}"/>
             <TextBlock Text="只读快照；修改配置后重新打开可查看最新内容。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <TextBox Header="连接名称" AutomationProperties.Name="连接名称，只读" Text="{Binding Profile.DisplayName}" IsReadOnly="True"/>
             <TextBox Header="协议" AutomationProperties.Name="协议，只读" Text="{Binding Profile.Protocol}" IsReadOnly="True"/>

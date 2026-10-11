@@ -19,6 +19,9 @@ public sealed partial class FilesPage : Page
     private WindowId _windowId;
     private bool _closing, _acting;
     private Task _action = Task.CompletedTask;
+    private Task _profileLoad = Task.CompletedTask;
+    private bool _loadingProfiles;
+    private Guid? _latestProfileId;
     private Task? _shutdown;
     public FilesViewModel ViewModel { get; }
     public FilesPage(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts, IConnectionProfileRepository profiles, NativeDialogService dialogs)
@@ -35,15 +38,36 @@ public sealed partial class FilesPage : Page
         _dialogs.ConfirmAsync(XamlRoot, "确认 SFTP 主机公钥", $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证。请通过可信渠道核实指纹，再选择信任并连接。", "信任并连接", token);
     private Task<bool> ConfirmPlaintextAsync(ConnectionProfile profile, CancellationToken token) =>
         _dialogs.ConfirmAsync(XamlRoot, "确认 FTP 明文传输", $"主机：{profile.Host}:{profile.Port}\n用户名：{profile.UserName}\n\nFTP 会以明文传输密码、目录和文件。只有确认此风险后才会读取凭据并连接。", "接受明文并连接", token);
-    public Task LoadProfilesAsync() => RunAsync(async () =>
+    public Task LoadProfilesAsync(Guid? preferredProfileId = null)
     {
-        if (!ViewModel.CanConnect) return;
-        var saved = await _profiles.ReadAsync(_stop.Token);
-        _stop.Token.ThrowIfCancellationRequested();
-        Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol is ConnectionProtocol.Ssh or ConnectionProtocol.Ftp or ConnectionProtocol.Ftps).ToArray();
-        Profiles.SelectedIndex = Profiles.Items.Count == 0 ? -1 : 0;
-        Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH、FTP 或 FTPS 配置。" : "";
-    });
+        if (_closing || !ViewModel.CanConnect) return _profileLoad;
+        // UI-affine single owner plus one latest ID: overlapping navigation does not queue reads.
+        _latestProfileId = preferredProfileId ?? (Profiles.SelectedItem as ConnectionProfile)?.Id;
+        if (_loadingProfiles) return _profileLoad;
+        _loadingProfiles = true;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _profileLoad = completion.Task;
+        _ = CompleteAsync();
+        return completion.Task;
+        async Task CompleteAsync()
+        {
+            try
+            {
+                if (_acting) await _action;
+                if (_closing || !ViewModel.CanConnect) return;
+                var saved = await _profiles.ReadAsync(_stop.Token);
+                _stop.Token.ThrowIfCancellationRequested();
+                if (_acting) await _action;
+                if (_closing || !ViewModel.CanConnect) return;
+                Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol is ConnectionProtocol.Ssh or ConnectionProtocol.Ftp or ConnectionProtocol.Ftps).ToArray();
+                Profiles.SelectedItem = Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault(profile => profile.Id == _latestProfileId) ?? Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault();
+                Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH、FTP 或 FTPS 配置。" : "";
+            }
+            catch (OperationCanceledException) { if (!_closing) Feedback.Text = "操作已取消。"; }
+            catch (Exception error) { if (!_closing) Feedback.Text = error is ArgumentException or IOException or InvalidOperationException ? error.Message : "文件配置读取失败。"; }
+            finally { _loadingProfiles = false; completion.SetResult(); }
+        }
+    }
     private async void Reload_Click(object sender, RoutedEventArgs args) => await LoadProfilesAsync();
     private async void Connect_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
     { if (Profiles.SelectedItem is ConnectionProfile profile) await ViewModel.ConnectAsync(profile); else Feedback.Text = "请选择已保存的文件连接配置。"; });
@@ -104,7 +128,7 @@ public sealed partial class FilesPage : Page
     private async Task CloseAsync()
     {
         var closing = ViewModel.DisposeAsync().AsTask();
-        try { await Task.WhenAll(_action, closing); }
+        try { await Task.WhenAll(_action, _profileLoad, closing); }
         finally { _stop.Dispose(); }
     }
 }
