@@ -1,4 +1,5 @@
 using WinShell.App.Features.Mcp;
+using WinShell.Mcp.Http;
 using WinShell.App.Features.Settings;
 using WinShell.Core.Settings;
 using WinShell.Infrastructure.Windows.Settings;
@@ -44,6 +45,8 @@ public partial class App : Application
     private DockerPage? _dockerPage;
     private Task? _shutdown;
     private McpPermissionsPage? _mcpPage;
+    private McpServicePage? _mcpServicePage;
+    private McpHttpProcessOwner? _mcpHttpOwner;
     private SettingsPage? _settingsPage;
 
     public App() => InitializeComponent();
@@ -75,6 +78,11 @@ public partial class App : Application
             builder.Services.AddSingleton<IMcpGrantRepository>(_ => new JsonMcpGrantRepository(GetConfigurationDirectory()));
             builder.Services.AddSingleton<McpPermissionsViewModel>();
             builder.Services.AddSingleton<McpPermissionsPage>();
+            builder.Services.AddSingleton(_ => new McpServiceSettingsStore(GetConfigurationDirectory()));
+            builder.Services.AddSingleton(_ => new LocalMcpHttpTokenStore(GetConfigurationDirectory()));
+            builder.Services.AddSingleton(_ => new McpHttpProcessOwner(settings => McpHttpProcessOwner.DeploymentStartInfo(AppContext.BaseDirectory, settings)));
+            builder.Services.AddSingleton<McpServiceViewModel>();
+            builder.Services.AddSingleton<McpServicePage>();
             builder.Services.AddSingleton<IAppearanceSettingsStore>(_ => new JsonAppearanceSettingsStore(GetConfigurationDirectory()));
             builder.Services.AddSingleton<IApplicationSettingsStore>(_ => new JsonApplicationSettingsStore(GetConfigurationDirectory()));
             builder.Services.AddSingleton<SettingsViewModel>();
@@ -92,6 +100,9 @@ public partial class App : Application
             _filesPage = _host.Services.GetRequiredService<FilesPage>();
             _mcpPage = _host.Services.GetRequiredService<McpPermissionsPage>();
             _settingsPage = _host.Services.GetRequiredService<SettingsPage>();
+            _mcpHttpOwner = _host.Services.GetRequiredService<McpHttpProcessOwner>();
+            _mcpServicePage = _host.Services.GetRequiredService<McpServicePage>();
+            _settingsPage.SetMcpServiceContent(_mcpServicePage);
             await _settingsPage.ViewModel.LoadAsync();
             _tunnelsPage = _host.Services.GetRequiredService<TunnelsPage>();
             _dockerPage = _host.Services.GetRequiredService<DockerPage>();
@@ -127,10 +138,12 @@ public partial class App : Application
         var terminal = AttemptAsync(() => _terminalPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var files = AttemptAsync(() => _filesPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var mcp = AttemptAsync(() => _mcpPage?.BeginShutdownAsync() ?? Task.CompletedTask);
+        var mcpHttp = AttemptAsync(() => _mcpHttpOwner?.DisposeAsync().AsTask() ?? Task.CompletedTask);
+        var mcpService = AttemptAsync(() => _mcpServicePage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var settings = AttemptAsync(() => _settingsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var tunnels = AttemptAsync(() => _tunnelsPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         var docker = AttemptAsync(() => _dockerPage?.BeginShutdownAsync() ?? Task.CompletedTask);
-        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, terminal, files, mcp, settings, tunnels, docker);
+        await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, terminal, files, mcp, mcpHttp, mcpService, settings, tunnels, docker);
         // Keep mutation admission bound until pending profile writes and terminal owners have joined.
         if (_profiles is not null) _profiles.BeginTerminalProfileMutationAsync = null;
         if (_host is { } host)
