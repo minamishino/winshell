@@ -62,6 +62,12 @@
           "Microsoft.WindowsAppSDK.WinUI": "2.3.9"
         }
       },
+      "System.Security.Cryptography.ProtectedData": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "wO0W8VDMeRJZakRySOmemAnrBZMwEFRlbfBtATxUiLf2I3IhSRnCp1Vt157NWptdE4IJ7eftd5n8q9LtaKHFTQ=="
+      },
       "Microsoft.Extensions.Configuration": {
         "type": "Transitive",
         "resolved": "10.0.12",
@@ -437,7 +443,7 @@
       "winshell.infrastructure.ssh": {
         "type": "Project",
         "dependencies": {
-          "Renci.SshNet": "[2026.0.0.2, )",
+          "Renci.SshNet": "[2026.0.0.4, )",
           "WinShell.Core": "[1.0.0, )"
         }
       },
