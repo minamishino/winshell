@@ -76,13 +76,15 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
         {
             var ready = await session.Ready.Task.WaitAsync(startDeadline ?? TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
             if (!ready) { await CloseSession(session).ConfigureAwait(false); return; }
+            Task? close = null;
             lock (_sync)
             {
-                if (session.Failure is null && !session.Stopping && !session.Exit.IsCompleted)
+                if (session.Stopping) close = CloseSession(session);
+                else if (session.Failure is null && !session.Exit.IsCompleted)
                 { _state = McpHttpProcessState.Running; _endpoint = settings.ConfiguredEndpoint; }
-                else session.Failure ??= "CHILD_EXITED";
+                else { session.Failure ??= "CHILD_EXITED"; close = CloseSession(session); }
             }
-            if (session.Failure is not null) await CloseSession(session).ConfigureAwait(false);
+            if (close is not null) await close.ConfigureAwait(false);
         }
         catch (Exception error) when (error is TimeoutException or OperationCanceledException)
         {
