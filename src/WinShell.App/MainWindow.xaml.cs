@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
         _workspace = workspace;
         _sshPage = sshPage;
         InitializeComponent();
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "winshell.ico"));
         ConnectionsHost.Content = connectionsPage;
         SshHost.Content = sshPage;
         DockerHost.Content = dockerPage;
