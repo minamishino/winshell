@@ -1,7 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using System.Runtime.InteropServices;
-using Windows.ApplicationModel.DataTransfer;
 namespace WinShell.App.Features.Mcp;
 
 public sealed partial class McpPermissionsPage : Page
@@ -12,7 +10,6 @@ public sealed partial class McpPermissionsPage : Page
     private Task? _close;
     private bool _busy, _closing;
     public McpPermissionsViewModel ViewModel { get; }
-    public McpClientLaunchViewModel ClientLaunch { get; } = new();
     public McpPermissionsPage(McpPermissionsViewModel viewModel, NativeDialogService dialogs)
     {
         ViewModel = viewModel; _dialogs = dialogs;
@@ -21,28 +18,7 @@ public sealed partial class McpPermissionsPage : Page
     }
     private async void Page_Loaded(object sender, RoutedEventArgs args)
     {
-        ReloadClientConfiguration();
         await ExecuteAsync(ViewModel.LoadAsync);
-    }
-    private void ReloadClientConfiguration() => ClientLaunch.Reload(AppContext.BaseDirectory, RuntimeEnvironment.GetRuntimeDirectory());
-    private void ReloadClientConfiguration_Click(object sender, RoutedEventArgs args)
-    {
-        if (!_closing) ReloadClientConfiguration();
-    }
-    private void CopyClientConfiguration_Click(object sender, RoutedEventArgs args)
-    {
-        if (_closing) return;
-        ReloadClientConfiguration();
-        if (!ClientLaunch.IsAvailable) return;
-        try
-        {
-            var content = new DataPackage();
-            content.SetText(ClientLaunch.Json);
-            Clipboard.SetContent(content);
-            Clipboard.Flush();
-            ClientLaunch.ReportCopySuccess();
-        }
-        catch (Exception) { ClientLaunch.ReportCopyFailure(); }
     }
     private async void Reload_Click(object sender, RoutedEventArgs args) => await ExecuteAsync(ViewModel.LoadAsync);
     private async void Revoke_Click(object sender, RoutedEventArgs args) => await ExecuteAsync(ViewModel.RevokeAllAsync);
