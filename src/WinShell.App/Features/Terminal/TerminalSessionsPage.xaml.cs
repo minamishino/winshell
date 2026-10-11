@@ -50,7 +50,7 @@ public sealed partial class TerminalSessionsPage : Page
         TerminalCommands.PrimaryCommands.Insert(0, _defaultTerminalCommand);
         foreach (var command in TerminalCommands.PrimaryCommands.Concat(TerminalCommands.SecondaryCommands).OfType<AppBarButton>())
             if (command.Flyout is { } flyout && _commandFlyouts.Add(flyout))
-            { flyout.Opened += Popup_Opened; flyout.Closed += Popup_Closed; }
+            { flyout.Opening += Popup_Opened; flyout.Closed += Popup_Closed; }
     }
     private void Terminal_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     { if (args.PropertyName == nameof(ViewModel.SelectedTab)) UpdatePresentation(); }
@@ -135,11 +135,14 @@ public sealed partial class TerminalSessionsPage : Page
     {
         if (EmptyMessage is null) return;
         EmptyMessage.Visibility = ViewModel.Tabs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // The CommandBar overflow is windowed; other overlays still need to suppress native airspace.
+        var popupObscuresTerminal = _openPopups.Any(popup => !ReferenceEquals(popup, TerminalCommands));
         foreach (var pair in _controls)
         {
             var selected = ReferenceEquals(ViewModel.SelectedTab, pair.Key);
             pair.Value.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
-            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && _openPopups.Count == 0 && selected && !_closing && !pair.Key.IsClosing);
+            pair.Value.SetPresentationVisible(_visible && !_dialogVisible && !popupObscuresTerminal && selected && !_closing && !pair.Key.IsClosing,
+                allowInput: _openPopups.Count == 0);
         }
         if (_visible && !_dialogVisible && _openPopups.Count == 0 && !_closing) SelectedControl?.Focus(FocusState.Programmatic);
     }
@@ -245,7 +248,7 @@ public sealed partial class TerminalSessionsPage : Page
         ViewModel.PropertyChanged -= Terminal_PropertyChanged;
         _defaultTerminalCommand.Click -= DefaultTerminal_Click;
         HideCommandFlyouts();
-        foreach (var flyout in _commandFlyouts) { flyout.Opened -= Popup_Opened; flyout.Closed -= Popup_Closed; }
+        foreach (var flyout in _commandFlyouts) { flyout.Opening -= Popup_Opened; flyout.Closed -= Popup_Closed; }
         _commandFlyouts.Clear();
         TerminalCommands.IsOpen = false; Distributions.IsDropDownOpen = false; _openPopups.Clear(); UpdatePresentation();
         return _shutdown = ShutdownCoreAsync();

@@ -31,6 +31,7 @@ public sealed class NativeTerminalControl : UserControl
     private Task? _scroll;
     private XamlRoot? _subscribedRoot;
     private bool _presentationSuppressed;
+    private bool _inputSuppressed;
     private PresentationState? _lastPresentation;
     private TerminalPreferences _preferences = new();
     private SolidColorBrush? _backgroundBrush, _foregroundBrush;
@@ -85,7 +86,7 @@ public sealed class NativeTerminalControl : UserControl
         {
             if (_closed) return;
             if (_subscribedRoot is null && XamlRoot is { } root) { _subscribedRoot = root; root.Changed += RootChanged; }
-            _presenter.SetVisible(!_presentationSuppressed);
+            _presenter.SetVisible(!_presentationSuppressed, !_inputSuppressed);
             QueuePresentation();
         };
         LayoutUpdated += (_, _) => { if (!_closed && _rendererReady && !_stop.IsCancellationRequested) _presenter.UpdateBounds(); };
@@ -103,10 +104,11 @@ public sealed class NativeTerminalControl : UserControl
         QueuePresentation();
     }
     private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => QueuePresentation();
-    public void SetPresentationVisible(bool visible)
+    public void SetPresentationVisible(bool visible, bool allowInput = true)
     {
         _presentationSuppressed = !visible;
-        _presenter.SetVisible(visible && IsLoaded && Visibility == Visibility.Visible);
+        _inputSuppressed = !allowInput;
+        _presenter.SetVisible(visible && IsLoaded && Visibility == Visibility.Visible, allowInput);
         QueuePresentation(visible);
     }
     public Task<string> CopySelectionAsync(CancellationToken token) => _renderer.CopySelectionAsync(token);
@@ -190,7 +192,7 @@ public sealed class NativeTerminalControl : UserControl
             var nativeBackground = (uint)(backgroundColor.R | backgroundColor.G << 8 | backgroundColor.B << 16);
             var nativeForeground = (uint)(Blend(foregroundColor.R, backgroundColor.R) | Blend(foregroundColor.G, backgroundColor.G) << 8 | Blend(foregroundColor.B, backgroundColor.B) << 16);
             var state = new PresentationState((int)Math.Max(16, Math.Round(_presenter.ActualWidth * scale)), (int)Math.Max(32, Math.Round(_presenter.ActualHeight * scale)),
-                (visible ?? Visibility == Microsoft.UI.Xaml.Visibility.Visible) && !_presentationSuppressed, FocusState != FocusState.Unfocused,
+                (visible ?? Visibility == Microsoft.UI.Xaml.Visibility.Visible) && !_presentationSuppressed, !_inputSuppressed && FocusState != FocusState.Unfocused,
                 checked((int)Math.Round(96 * scale)), ActualTheme, nativeBackground, nativeForeground, _running, _preferences);
             if (_lastPresentation == state) return;
             _lastPresentation = state;
@@ -239,7 +241,7 @@ public sealed class NativeTerminalControl : UserControl
                 await _session!.ResizeAsync(dimensions.Columns, dimensions.Rows, _stop.Token);
                 await _renderer.SetVisibleAsync(state.Visible, _stop.Token);
                 // Once focus enters the child, only its own WM_KILLFOCUS may clear native focus.
-                if (state.Visible && state.Focused) await _renderer.SetFocusedAsync(true, _stop.Token);
+                if (state.Visible && state.Focused && !_inputSuppressed) await _renderer.SetFocusedAsync(true, _stop.Token);
             }
         }
         catch (Exception error) when (_stop.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException) { }
@@ -267,6 +269,7 @@ public sealed class NativeTerminalControl : UserControl
     public async Task StartRendererAsync(CancellationToken cancellationToken)
     {
         _presenter.CreateHost();
+        _presenter.SetVisible(!_presentationSuppressed && IsLoaded && Visibility == Visibility.Visible, !_inputSuppressed);
         await _renderer.StartAsync(_presenter.Window, cancellationToken);
         _rendererReady = true;
         QueuePresentation();
