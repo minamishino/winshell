@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using WinShell.Core.Settings;
 
 namespace WinShell.App.Controls;
 
@@ -31,10 +32,11 @@ public sealed class NativeTerminalControl : UserControl
     private XamlRoot? _subscribedRoot;
     private bool _presentationSuppressed;
     private PresentationState? _lastPresentation;
+    private TerminalPreferences _preferences = new();
     private SolidColorBrush? _backgroundBrush, _foregroundBrush;
     private long _backgroundColorToken, _backgroundOpacityToken, _foregroundColorToken, _foregroundOpacityToken;
     private readonly long _backgroundToken, _foregroundToken;
-    private readonly record struct PresentationState(int Width, int Height, bool Visible, bool Focused, int Dpi, ElementTheme Theme, uint BackgroundColor, uint ForegroundColor, bool BackendRunning);
+    private readonly record struct PresentationState(int Width, int Height, bool Visible, bool Focused, int Dpi, ElementTheme Theme, uint BackgroundColor, uint ForegroundColor, bool BackendRunning, TerminalPreferences Preferences);
     public Task OutputCompletion => _output ?? Task.CompletedTask;
     public NativeTerminalControl(RendererJob job, string rendererExecutable)
     {
@@ -91,6 +93,15 @@ public sealed class NativeTerminalControl : UserControl
     }
     public RendererClient Renderer => _renderer;
     public nint HostWindow => _presenter.Window;
+    public void ApplyPreferences(TerminalPreferences preferences)
+    {
+        if (!DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("终端偏好必须在 XAML 线程更新。");
+        ArgumentNullException.ThrowIfNull(preferences);
+        preferences.Validate();
+        if (_closed) return;
+        _preferences = preferences;
+        QueuePresentation();
+    }
     private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => QueuePresentation();
     public void SetPresentationVisible(bool visible)
     {
@@ -180,7 +191,7 @@ public sealed class NativeTerminalControl : UserControl
             var nativeForeground = (uint)(Blend(foregroundColor.R, backgroundColor.R) | Blend(foregroundColor.G, backgroundColor.G) << 8 | Blend(foregroundColor.B, backgroundColor.B) << 16);
             var state = new PresentationState((int)Math.Max(16, Math.Round(_presenter.ActualWidth * scale)), (int)Math.Max(32, Math.Round(_presenter.ActualHeight * scale)),
                 (visible ?? Visibility == Microsoft.UI.Xaml.Visibility.Visible) && !_presentationSuppressed, FocusState != FocusState.Unfocused,
-                checked((int)Math.Round(96 * scale)), ActualTheme, nativeBackground, nativeForeground, _running);
+                checked((int)Math.Round(96 * scale)), ActualTheme, nativeBackground, nativeForeground, _running, _preferences);
             if (_lastPresentation == state) return;
             _lastPresentation = state;
             _pendingPresentation = state;
@@ -218,7 +229,7 @@ public sealed class NativeTerminalControl : UserControl
             {
                 _pendingPresentation = null;
                 _presenter.UpdateBounds();
-                await _renderer.SetThemeAsync(state.Theme == ElementTheme.Dark, state.Dpi, state.BackgroundColor, state.ForegroundColor, _stop.Token);
+                await _renderer.SetThemeAsync(state.Theme == ElementTheme.Dark, state.Dpi, state.BackgroundColor, state.ForegroundColor, state.Preferences, _stop.Token);
                 if (!state.BackendRunning)
                 {
                     await _renderer.SetVisibleAsync(state.Visible, _stop.Token);
@@ -290,7 +301,10 @@ public sealed class NativeTerminalControl : UserControl
         var failures = new List<Exception>();
         async Task Join(Task task) { try { await task; } catch (OperationCanceledException) { } catch (Exception error) { failures.Add(error); } }
         // Backend Close cancels a pending Start and keeps its sole ConPTY drainer alive.
-        if (_session is not null) await Join(_session.CloseAsync(CancellationToken.None).AsTask());
+        if (_session is not null)
+        {
+            await Join(_session.CloseAsync(CancellationToken.None).AsTask());
+        }
         if (_start is not null) await Join(_start);
         await Join(_renderer.CloseAsync(CancellationToken.None));
         if (_output is not null) await Join(_output);
