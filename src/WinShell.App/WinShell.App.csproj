@@ -30,6 +30,18 @@
     <ProjectReference Include="../WinShell.Mcp/WinShell.Mcp.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" AdditionalProperties="Platform=AnyCPU" />
     <ProjectReference Include="../WinShell.Mcp.Http/WinShell.Mcp.Http.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;RuntimeFrameworkVersion;PublishDir;PublishUrl" AdditionalProperties="Platform=AnyCPU" />
   </ItemGroup>
+  <Target Name="IncludeWinUiResourcesInPublish" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <WinUiResourcesToPublish Include="@(ApplicationDefinition);@(Page)">
+        <ResourceRelativePath>%(RelativeDir)%(Filename).xbf</ResourceRelativePath>
+      </WinUiResourcesToPublish>
+      <WinUiResourcesToPublish Include="$(AssemblyName).pri" ResourceRelativePath="$(AssemblyName).pri" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(OutDir)%(WinUiResourcesToPublish.ResourceRelativePath)')" Text="Missing declared WinUI publish resource: %(WinUiResourcesToPublish.ResourceRelativePath). Build the complete App before publishing." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)%(WinUiResourcesToPublish.ResourceRelativePath)" RelativePath="%(WinUiResourcesToPublish.ResourceRelativePath)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
   <Target Name="CopyMcpHttpCompanion" AfterTargets="Build">
     <PropertyGroup><McpHttpPublishDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/obj/McpHttp/$(Configuration)/'))</McpHttpPublishDirectory></PropertyGroup>
     <MSBuild Projects="../WinShell.Mcp.Http/WinShell.Mcp.Http.csproj" Targets="Publish" Properties="Configuration=$(Configuration);Platform=AnyCPU;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(McpHttpPublishDirectory)" RemoveProperties="RuntimeFrameworkVersion;PublishUrl;TargetFramework">
