@@ -1,0 +1,61 @@
+MCP platform dependency notices — verified 2026-10-08
+
+The managed MCP deployment also carries Microsoft.Windows.SDK.NET.dll,
+WinRT.Runtime.dll and the Microsoft.Windows.Console.ConPTY runtime assets
+through WinShell.Infrastructure.Windows. It does not carry the terminal
+renderer or portable PowerShell.
+
+Microsoft.Windows.SDK.NET.Ref 10.0.26100.87:
+The complete Microsoft SDK license supplied by the package license URL is
+preserved unmodified in WindowsSdkLicense.rtf alongside this file.
+https://aka.ms/WinSDKLicenseURL
+SHA256: DD07EB178E00C6BBA4148457FC00FF77CD4887EB521D504186FE59C9EC8BBE62
+
+ConPTY 1.25.260930003 uses the Microsoft Windows Terminal MIT license below.
+Complete upstream third-party notices are in ConPtyThirdPartyNotices.html.
+Microsoft Windows Terminal 1.25.2733.0, source dc8ae365847d41f62d1ebca93815bb00959bc12f
+Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe)
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+C#/WinRT (WinRT.Runtime.dll 2.3.1.54291), official 2.3.1.260716.1 source:
+https://github.com/microsoft/CsWinRT/tree/ff5227a4ffca06dfa6de8ca0a5c127c04f294291
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
