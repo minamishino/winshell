@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.IO.Pipes;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
