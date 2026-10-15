@@ -18,7 +18,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     private Task? _disposal;
     private Exception? _cleanupFailure;
     private bool _busy, _disposed;
-    private string _path = "/", _status = "选择已保存的 SSH、FTP 或 FTPS 配置以浏览文件。", _progressText = "";
+    private string _path = "/", _status = "", _progressText = "";
     private IReadOnlyList<RemoteFileEntry> _entries = [];
     private FileTransferProgress? _latestProgress;
     public bool IsBusy { get => _busy; private set { if (SetProperty(ref _busy, value)) NotifyState(); } }
@@ -26,6 +26,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     public bool CanConnect => !_disposed && !IsBusy && !IsReady;
     public bool CanBrowse => !_disposed && !IsBusy && IsReady;
     public bool CanCancel => !_disposed && IsBusy;
+    public bool ShowConnectionPrompt => !IsReady && !IsBusy;
     public string Path { get => _path; set => SetProperty(ref _path, value); }
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
     public string ProgressText { get => _progressText; private set => SetProperty(ref _progressText, value); }
@@ -130,7 +131,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     private void NotifyState()
     {
         OnPropertyChanged(nameof(ConnectionNotice)); OnPropertyChanged(nameof(TransferSafety));
-        OnPropertyChanged(nameof(IsReady)); OnPropertyChanged(nameof(CanConnect)); OnPropertyChanged(nameof(CanBrowse)); OnPropertyChanged(nameof(CanCancel));
+        OnPropertyChanged(nameof(IsReady)); OnPropertyChanged(nameof(CanConnect)); OnPropertyChanged(nameof(CanBrowse)); OnPropertyChanged(nameof(CanCancel)); OnPropertyChanged(nameof(ShowConnectionPrompt));
     }
     public ValueTask DisposeAsync()
     {

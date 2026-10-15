@@ -61,7 +61,7 @@ public sealed partial class FilesPage : Page
                 if (_closing || !ViewModel.CanConnect) return;
                 Profiles.ItemsSource = saved.Profiles.Where(profile => profile.Protocol is ConnectionProtocol.Ssh or ConnectionProtocol.Ftp or ConnectionProtocol.Ftps).ToArray();
                 Profiles.SelectedItem = Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault(profile => profile.Id == _latestProfileId) ?? Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault();
-                Feedback.Text = Profiles.Items.Count == 0 ? "请先在连接配置页保存 SSH、FTP 或 FTPS 配置。" : "";
+                Feedback.Text = Profiles.Items.Count == 0 ? "尚无连接，请先新建连接。" : "";
             }
             catch (OperationCanceledException) { if (!_closing) Feedback.Text = "操作已取消。"; }
             catch (Exception error) { if (!_closing) Feedback.Text = error is ArgumentException or IOException or InvalidOperationException ? error.Message : "文件配置读取失败。"; }
@@ -81,7 +81,6 @@ public sealed partial class FilesPage : Page
     private async void Entries_KeyDown(object sender, KeyRoutedEventArgs args)
     { if (args.Key == VirtualKey.Enter) { args.Handled = true; await OpenSelectedAsync(); } }
     private async void Entries_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await OpenSelectedAsync();
-    private async void Open_Click(object sender, RoutedEventArgs args) => await OpenSelectedAsync();
     private Task OpenSelectedAsync() => RunAsync(async () =>
     { if (Entries.SelectedItem is RemoteFileEntry { IsDirectory: true } entry) await ViewModel.BrowseAsync(entry.FullPath); else Feedback.Text = "请选择目录。"; });
     private async void Download_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
@@ -136,5 +135,11 @@ public sealed partial class FilesPage : Page
 public sealed class DirectoryLabelConverter : Microsoft.UI.Xaml.Data.IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) => value is true ? "目录" : "文件 / 其他";
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
+public sealed class FileGlyphConverter : Microsoft.UI.Xaml.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) => value is true ? "\uE8B7" : "\uE8A5";
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
