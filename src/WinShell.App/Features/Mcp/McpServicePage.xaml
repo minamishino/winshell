@@ -1,34 +1,58 @@
-<Page x:Class="WinShell.App.Features.Mcp.McpServicePage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <StackPanel Spacing="12">
-  <Border Style="{StaticResource WinShellCardStyle}"><StackPanel Spacing="12">
-   <TextBlock Text="本机 MCP 服务" Style="{StaticResource WinShellSectionTitleStyle}"/>
-   <ComboBox x:Name="TransportSelector" Header="传输方式" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}" SelectionChanged="Transport_SelectionChanged" AutomationProperties.Name="MCP 传输方式"><ComboBoxItem Content="stdio（客户端按需启动）"/><ComboBoxItem Content="Streamable HTTP（仅本机）"/></ComboBox>
-   <StackPanel x:Name="HttpOptions" Spacing="12" Visibility="Collapsed">
-    <NumberBox x:Name="PortSelector" Header="本机 HTTP 端口（1024–65535）" Minimum="1024" Maximum="65535" SmallChange="1" SpinButtonPlacementMode="Inline" IsEnabled="{Binding CanEdit}" ValueChanged="Port_ValueChanged" AutomationProperties.Name="MCP HTTP 端口"/>
-    <ToggleSwitch x:Name="LegacySseSelector" Header="启用旧版 SSE 兼容" IsEnabled="{Binding CanEdit}" Toggled="Sse_Toggled" AutomationProperties.Name="MCP SSE 兼容"/>
-    <TextBlock Text="默认使用 /mcp。旧客户端可明确启用 /mcp/sse；仅监听 127.0.0.1，所有请求须使用令牌。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-    <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="启动" IsEnabled="{Binding CanStart}" Click="Start_Click" AutomationProperties.Name="启动 MCP HTTP 服务"/><Button Content="停止" IsEnabled="{Binding CanStop}" Click="Stop_Click" AutomationProperties.Name="停止 MCP HTTP 服务"/></StackPanel>
-    <TextBlock Text="{Binding StateDescription}" Style="{StaticResource WinShellStatusTextStyle}" AutomationProperties.Name="MCP 服务状态"/>
-    <TextBlock Text="{Binding EndpointDescription}" Style="{StaticResource WinShellStatusTextStyle}" AutomationProperties.Name="MCP 服务地址"/>
-    <TextBlock Text="离开设置不会停止服务。关闭此窗口会停止并等待本窗口子进程退出。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-   </StackPanel>
-   <TextBlock x:Name="StdioDescription" Text="stdio 服务由 AI 客户端按需启动，不由此窗口持续运行。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-  </StackPanel></Border>
-  <Border x:Name="TokenCard" Style="{StaticResource WinShellCardStyle}" Visibility="Collapsed"><StackPanel Spacing="8">
-   <TextBlock Text="HTTP 令牌" Style="{StaticResource WinShellSectionTitleStyle}"/>
-   <TextBlock Text="令牌使用当前 Windows 用户的 DPAPI 保存。停止使用该配置的全部服务后才能轮换；令牌不会显示在页面中。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-   <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="生成令牌" IsEnabled="{Binding CanGenerate}" Click="Generate_Click" AutomationProperties.Name="生成 MCP HTTP 令牌"/><Button Content="轮换令牌" IsEnabled="{Binding CanRotate}" Click="Rotate_Click" AutomationProperties.Name="轮换 MCP HTTP 令牌"/><Button Content="复制令牌" IsEnabled="{Binding CanCopyToken}" Click="CopyToken_Click" AutomationProperties.Name="复制 MCP HTTP 令牌"/></StackPanel>
-  </StackPanel></Border>
-  <Border Style="{StaticResource WinShellCardStyle}"><StackPanel Spacing="8">
-   <TextBlock Text="客户端连接配置" Style="{StaticResource WinShellSectionTitleStyle}"/>
-   <TextBlock Text="Cursor 支持的 mcpServers JSON 示例；请按所用客户端的文档合并。复制 HTTP 配置会包含令牌，不会自动修改客户端文件。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
-   <Expander x:Name="StdioConfiguration" Header="stdio 配置示例" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="MCP 客户端连接配置"><StackPanel Spacing="8">
-    <TextBox Text="{Binding ClientLaunch.Json}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="180" AutomationProperties.Name="MCP 客户端 JSON 配置"/>
-    <TextBlock Text="{Binding ClientLaunch.Status}" Style="{StaticResource WinShellStatusTextStyle}"/>
-   </StackPanel></Expander>
-   <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="重新加载配置" Click="ReloadClientConfiguration_Click" AutomationProperties.Name="重新加载 MCP 客户端配置"/><Button Content="复制配置" IsEnabled="{Binding CanCopyConfiguration}" Click="CopyConfiguration_Click" AutomationProperties.Name="复制 MCP 客户端配置"/><Button Content="复制 SSE 配置" IsEnabled="{Binding CanCopySse}" Click="CopySse_Click" AutomationProperties.Name="复制 MCP SSE 客户端配置"/></StackPanel>
-  </StackPanel></Border>
-  <TextBlock Text="{Binding Status}" Style="{StaticResource WinShellStatusTextStyle}" AutomationProperties.Name="MCP 设置操作状态"/>
-  <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="重新加载服务设置" IsEnabled="{Binding CanEdit}" Click="Reload_Click" AutomationProperties.Name="重新加载 MCP 服务设置"/><Button x:Name="RetrySave" Content="重试保存" Visibility="Collapsed" IsEnabled="{Binding CanEdit}" Click="Save_Click" AutomationProperties.Name="重试保存 MCP 服务设置"/></StackPanel>
- </StackPanel>
+<Page x:Class="WinShell.App.Features.Mcp.McpServicePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <Border Style="{StaticResource WinShellCardStyle}">
+            <StackPanel Spacing="12">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="本机 MCP 服务" Style="{StaticResource WinShellSectionTitleStyle}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Style="{StaticResource WinShellIconButtonStyle}" IsEnabled="{Binding CanEdit}" Click="Reload_Click" ToolTipService.ToolTip="重新加载服务设置" AutomationProperties.Name="重新加载 MCP 服务设置"><FontIcon Glyph="&#xE72C;" FontSize="14"/></Button>
+                </Grid>
+                <ComboBox x:Name="TransportSelector" Header="传输方式" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}" SelectionChanged="Transport_SelectionChanged" AutomationProperties.Name="MCP 传输方式"><ComboBoxItem Content="stdio"/><ComboBoxItem Content="Streamable HTTP（仅本机）"/></ComboBox>
+                <StackPanel x:Name="HttpOptions" Spacing="8" Visibility="Collapsed">
+                    <NumberBox x:Name="PortSelector" Header="HTTP 端口" Minimum="1024" Maximum="65535" SmallChange="1" SpinButtonPlacementMode="Inline" IsEnabled="{Binding CanEdit}" ValueChanged="Port_ValueChanged" ToolTipService.ToolTip="仅监听 127.0.0.1，端口范围 1024–65535。" AutomationProperties.Name="MCP HTTP 端口"/>
+                    <ToggleSwitch x:Name="LegacySseSelector" Header="兼容旧版 SSE" IsEnabled="{Binding CanEdit}" Toggled="Sse_Toggled" ToolTipService.ToolTip="默认端点为 /mcp；启用后旧客户端可使用 /mcp/sse。" AutomationProperties.Name="MCP SSE 兼容"/>
+                    <TextBlock Text="仅本机 · 令牌验证 · 随窗口关闭" Style="{StaticResource WinShellPageDescriptionStyle}" ToolTipService.ToolTip="离开设置不会停止服务。关闭此窗口会停止并等待本窗口子进程退出。"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="启动" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanStart}" Click="Start_Click" AutomationProperties.Name="启动 MCP HTTP 服务"/>
+                        <Button Content="停止" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanStop}" Click="Stop_Click" AutomationProperties.Name="停止 MCP HTTP 服务"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding StateDescription}" Style="{StaticResource WinShellStatusTextStyle}" Visibility="{Binding StateDescription, Converter={StaticResource WinShellTextVisibility}}" AutomationProperties.Name="MCP 服务状态"/>
+                    <TextBlock Text="{Binding EndpointDescription}" Style="{StaticResource WinShellStatusTextStyle}" Visibility="{Binding EndpointDescription, Converter={StaticResource WinShellTextVisibility}}" AutomationProperties.Name="MCP 服务地址"/>
+                </StackPanel>
+                <TextBlock x:Name="StdioDescription" Text="由 AI 客户端按需启动。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
+            </StackPanel>
+        </Border>
+        <Border x:Name="TokenCard" Style="{StaticResource WinShellCardStyle}" Visibility="Collapsed">
+            <StackPanel Spacing="8">
+                <TextBlock Text="HTTP 令牌" Style="{StaticResource WinShellSectionTitleStyle}" ToolTipService.ToolTip="使用当前 Windows 用户的 DPAPI 保存；令牌不会显示在页面中。"/>
+                <TextBlock Text="轮换前请停止所有使用此配置的服务。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="生成令牌" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanGenerate}" Click="Generate_Click" AutomationProperties.Name="生成 MCP HTTP 令牌"/>
+                    <Button Content="轮换令牌" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanRotate}" Click="Rotate_Click" AutomationProperties.Name="轮换 MCP HTTP 令牌"/>
+                    <Button Content="复制令牌" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanCopyToken}" Click="CopyToken_Click" AutomationProperties.Name="复制 MCP HTTP 令牌"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource WinShellCardStyle}">
+            <StackPanel Spacing="8">
+                <TextBlock Text="客户端配置" Style="{StaticResource WinShellSectionTitleStyle}" ToolTipService.ToolTip="mcpServers JSON 示例；按客户端文档合并，不会自动修改客户端文件。"/>
+                <TextBlock Text="HTTP 配置包含令牌，请仅交给可信客户端。" Visibility="{Binding Visibility, ElementName=TokenCard}" Style="{StaticResource WinShellPageDescriptionStyle}"/>
+                <Expander x:Name="StdioConfiguration" Header="stdio 配置示例" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="MCP 客户端连接配置">
+                    <StackPanel Spacing="8">
+                        <TextBox Text="{Binding ClientLaunch.Json}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="180" AutomationProperties.Name="MCP 客户端 JSON 配置"/>
+                        <TextBlock Text="{Binding ClientLaunch.Status}" Style="{StaticResource WinShellStatusTextStyle}" Visibility="{Binding ClientLaunch.Status, Converter={StaticResource WinShellTextVisibility}}"/>
+                    </StackPanel>
+                </Expander>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="ReloadClientConfigurationButton" Style="{StaticResource WinShellIconButtonStyle}" XYFocusRight="{Binding ElementName=CopyConfigurationButton}" Click="ReloadClientConfiguration_Click" ToolTipService.ToolTip="重新加载客户端配置" AutomationProperties.Name="重新加载 MCP 客户端配置"><FontIcon Glyph="&#xE72C;" FontSize="14"/></Button>
+                    <Button x:Name="CopyConfigurationButton" Content="复制配置" Style="{StaticResource WinShellToolbarButtonStyle}" XYFocusLeft="{Binding ElementName=ReloadClientConfigurationButton}" IsEnabled="{Binding CanCopyConfiguration}" Click="CopyConfiguration_Click" AutomationProperties.Name="复制 MCP 客户端配置"/>
+                    <Button Content="复制 SSE 配置" Style="{StaticResource WinShellToolbarButtonStyle}" IsEnabled="{Binding CanCopySse}" Click="CopySse_Click" Visibility="{Binding Visibility, ElementName=TokenCard}" AutomationProperties.Name="复制 MCP SSE 客户端配置"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock Text="{Binding Status}" Style="{StaticResource WinShellStatusTextStyle}" Visibility="{Binding Status, Converter={StaticResource WinShellTextVisibility}}" AutomationProperties.Name="MCP 设置操作状态"/>
+        <Button x:Name="RetrySave" Content="重试保存" Style="{StaticResource WinShellToolbarButtonStyle}" Visibility="Collapsed" IsEnabled="{Binding CanEdit}" Click="Save_Click" AutomationProperties.Name="重试保存 MCP 服务设置"/>
+    </StackPanel>
 </Page>
