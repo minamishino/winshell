@@ -18,6 +18,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     private Task? _disposal;
     private Exception? _cleanupFailure;
     private bool _busy, _disposed;
+    private bool _lastNotifiedReady;
     private string _path = "/", _status = "", _progressText = "";
     private IReadOnlyList<RemoteFileEntry> _entries = [];
     private FileTransferProgress? _latestProgress;
@@ -88,7 +89,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
         if (_disposed) return;
         var latest = Interlocked.Exchange(ref _latestProgress, null);
         if (latest is not null) ProgressText = $"{latest.BytesTransferred:N0} / {latest.TotalBytes:N0} 字节";
-        NotifyState();
+        if (IsReady != _lastNotifiedReady) NotifyState();
     }
     private sealed class LatestProgress(FilesViewModel owner) : IProgress<FileTransferProgress>
     { public void Report(FileTransferProgress value) => Interlocked.Exchange(ref owner._latestProgress, value); }
@@ -130,6 +131,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     }
     private void NotifyState()
     {
+        _lastNotifiedReady = IsReady;
         OnPropertyChanged(nameof(ConnectionNotice)); OnPropertyChanged(nameof(TransferSafety));
         OnPropertyChanged(nameof(IsReady)); OnPropertyChanged(nameof(CanConnect)); OnPropertyChanged(nameof(CanBrowse)); OnPropertyChanged(nameof(CanCancel)); OnPropertyChanged(nameof(ShowConnectionPrompt));
     }
