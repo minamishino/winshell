@@ -3,7 +3,6 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using FluentFTP;
-using FluentFTP.Helpers;
 using WinShell.Core.Credentials;
 using WinShell.Core.Files;
 using WinShell.Core.Connections;
