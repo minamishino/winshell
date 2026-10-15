@@ -298,17 +298,22 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
             if (context.Request.Method == "POST")
             {
                 if (context.Request.ContentLength > MaximumMessageBytes) { context.Response.StatusCode = 413; return; }
-                var bytes = new byte[MaximumMessageBytes + 1]; var used = 0;
+                // A known length includes one sentinel byte; unknown/chunked bodies grow only
+                // as consumed. The sentinel distinguishes exact-cap EOF from excess input.
+                var initialBytes = context.Request.ContentLength is { } length ? checked((int)length + 1) : 4096;
+                var bytes = new byte[initialBytes]; var used = 0;
                 using var read = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
                 read.CancelAfter(TimeSpan.FromSeconds(10));
                 while (true)
                 {
+                    if (used == bytes.Length)
+                        Array.Resize(ref bytes, Math.Min(MaximumMessageBytes + 1, bytes.Length * 2));
                     var count = await context.Request.Body.ReadAsync(bytes.AsMemory(used), read.Token).ConfigureAwait(false);
                     used += count;
                     if (used > MaximumMessageBytes) { context.Response.StatusCode = 413; return; }
                     if (count == 0) break;
                 }
-                ValidateJson(bytes.AsSpan(0, used));
+                ValidateJson(bytes.AsMemory(0, used));
                 boundedInput = new MemoryStream(bytes, 0, used, false);
                 context.Request.Body = boundedInput;
             }
@@ -339,11 +344,11 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
             }
         }
     }
-    private static void ValidateJson(ReadOnlySpan<byte> bytes)
+    private static void ValidateJson(ReadOnlyMemory<byte> bytes)
     {
-        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = 64 }); var tokens = 0;
+        var reader = new Utf8JsonReader(bytes.Span, new JsonReaderOptions { MaxDepth = 64 }); var tokens = 0;
         while (reader.Read()) if (++tokens > 8192) throw new JsonException("message_limit");
-        using var document = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 64, AllowDuplicateProperties = false });
+        using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 64, AllowDuplicateProperties = false });
     }
     private async Task ReleaseOwnerAsync(SessionOwner owner)
     {
