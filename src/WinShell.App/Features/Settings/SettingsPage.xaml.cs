@@ -17,6 +17,7 @@ public sealed partial class SettingsPage : Page
         new("files", "文件", "传输 下载 上传 SFTP FTP FTPS"), new("mcp", "AI / MCP", "权限 stdio HTTP Streamable SSE 兼容 令牌 token 端口 授权 客户端 AI 服务")
     ];
     private bool _updatingSelection = true;
+    private bool? _wideLayout;
     private Action<SettingsNavigationTarget>? _navigate;
     public SettingsViewModel ViewModel { get; }
     public SettingsPage(SettingsViewModel viewModel, McpPermissionsPage permissionsPage)
@@ -36,6 +37,20 @@ public sealed partial class SettingsPage : Page
     { McpServiceHost.Content = content; McpServiceHost.Visibility = content is null ? Visibility.Collapsed : Visibility.Visible; }
     public void ShowPermissions()
     { SettingsSearch.Text = ""; Categories.SelectedItem = AllCategories.Single(category => category.Key == "mcp"); }
+    private void Page_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        var wide = args.NewSize.Width >= 720;
+        if (_wideLayout == wide) return;
+        _wideLayout = wide;
+        SidebarColumn.Width = new GridLength(wide ? 156 : 0);
+        SettingsLayout.ColumnSpacing = wide ? 16 : 0;
+        Grid.SetColumn(SettingsSidebar, wide ? 0 : 1);
+        Grid.SetRowSpan(SettingsSidebar, wide ? 2 : 1);
+        Grid.SetRow(SettingsContentHost, wide ? 0 : 1);
+        Grid.SetRowSpan(SettingsContentHost, wide ? 2 : 1);
+        Categories.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        CompactCategories.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
+    }
     private void Model_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName == nameof(ViewModel.Settings)) UpdateSelection();
