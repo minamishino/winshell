@@ -8,12 +8,20 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
 {
     private readonly object _gate = new();
     private int _operations;
-    public Task<DockerResult> ListContainersAsync(ConnectionProfile profile, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.List(), false, true, cancellationToken);
-    public Task<DockerResult> GetContainerLogsAsync(ConnectionProfile profile, string containerId, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Logs(containerId), false, false, cancellationToken);
-    public Task<DockerResult> ChangeContainerStateAsync(ConnectionProfile profile, string containerId, DockerContainerAction action, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Change(containerId, action), true, false, cancellationToken);
-    public Task<DockerResult> RunContainerCommandAsync(ConnectionProfile profile, string containerId, string command, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Command(containerId, command), true, false, cancellationToken);
+    public Task<DockerResult> ListContainersAsync(ConnectionProfile profile, CancellationToken cancellationToken)
+    {
+        // A shell request can emit login startup text before executing our script. Frame only
+        // this command's stdout; the preamble still consumes the existing capture byte budget.
+        var marker = "WINSHELL_DOCKER_LIST_" + Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        var script = "printf '\\n%s\\n' '" + marker + "'\n" + DockerScriptBuilder.List();
+        DockerScriptBuilder.ValidateText(script, 8192);
+        return RunAsync(profile, script, false, marker, cancellationToken);
+    }
+    public Task<DockerResult> GetContainerLogsAsync(ConnectionProfile profile, string containerId, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Logs(containerId), false, null, cancellationToken);
+    public Task<DockerResult> ChangeContainerStateAsync(ConnectionProfile profile, string containerId, DockerContainerAction action, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Change(containerId, action), true, null, cancellationToken);
+    public Task<DockerResult> RunContainerCommandAsync(ConnectionProfile profile, string containerId, string command, CancellationToken cancellationToken) => RunAsync(profile, DockerScriptBuilder.Command(containerId, command), true, null, cancellationToken);
 
-    private async Task<DockerResult> RunAsync(ConnectionProfile profile, string script, bool mutation, bool list, CancellationToken cancellationToken)
+    private async Task<DockerResult> RunAsync(ConnectionProfile profile, string script, bool mutation, string? listMarker, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (profile.Protocol != ConnectionProtocol.Ssh) throw new SshConnectionException(SshFailureKind.InvalidProfile, "Docker 只支持 SSH 配置。");
@@ -41,7 +49,8 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
                     mutation ? "结果未确认，请刷新；不会自动重试操作。" : "未收到完整 Docker 退出状态。");
             DockerScriptBuilder.ValidateText(result.StandardOutput, 32768);
             DockerScriptBuilder.ValidateText(result.StandardError, 16384);
-            return new(list && result.ExitStatus == 0 ? DockerMetadataReader.Read(result.StandardOutput) : [], result.StandardOutput, result.StandardError, result.ExitStatus);
+            var output = listMarker is null ? result.StandardOutput : ReadListOutput(result.StandardOutput, listMarker, result.ExitStatus == 0);
+            return new(listMarker is not null && result.ExitStatus == 0 ? DockerMetadataReader.Read(output) : [], output, result.StandardError, result.ExitStatus);
         }
         catch (Exception exception)
         {
@@ -59,5 +68,17 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
             catch (Exception cleanup) when (failure is not null) { failure.Data["DockerCleanupFailure"] = cleanup; }
             finally { lock (_gate) _operations--; }
         }
+    }
+
+    private static string ReadListOutput(string output, string marker, bool succeeded)
+    {
+        var delimiter = "\n" + marker + "\n";
+        var start = output.IndexOf(delimiter, StringComparison.Ordinal);
+        if (start < 0 || output.IndexOf(delimiter, start + 1, StringComparison.Ordinal) >= 0)
+        {
+            if (succeeded) throw new DockerException(DockerFailureKind.InvalidMetadata, "Docker 列表输出起始标记缺失或重复，请检查 SSH 启动脚本；未显示不完整结果。");
+            return output;
+        }
+        return output[(start + delimiter.Length)..];
     }
 }
