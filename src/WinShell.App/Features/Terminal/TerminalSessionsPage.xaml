@@ -4,8 +4,8 @@
       xmlns:terminal="using:WinShell.App.Features.Terminal">
     <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="8">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <CommandBar x:Name="TerminalCommands" DefaultLabelPosition="Right" Opened="Popup_Opened" Closed="Popup_Closed" AutomationProperties.Name="终端操作">
-            <AppBarButton Icon="Add" Label="其他会话" AutomationProperties.Name="其他终端会话">
+        <CommandBar x:Name="TerminalCommands" DefaultLabelPosition="Collapsed" HorizontalAlignment="Left" Background="Transparent" Opened="Popup_Opened" Closed="Popup_Closed" AutomationProperties.Name="终端操作">
+            <AppBarButton Icon="AllApps" Label="其他会话" ToolTipService.ToolTip="其他会话" AutomationProperties.Name="其他终端会话">
                 <AppBarButton.Flyout>
                     <Flyout x:Name="NewSessionFlyout" Opened="Popup_Opened" Closed="Popup_Closed">
                         <StackPanel Spacing="16" MinWidth="240" MaxWidth="320">
@@ -18,7 +18,6 @@
                                     <Button Content="刷新" Click="RefreshWsl_Click" AutomationProperties.Name="刷新 WSL 发行版"/>
                                 </StackPanel>
                             </StackPanel>
-                            <TextBlock Text="SSH 从连接页打开，最多同时运行两个终端。" Style="{StaticResource WinShellPageDescriptionStyle}"/>
                         </StackPanel>
                     </Flyout>
                 </AppBarButton.Flyout>
@@ -38,15 +37,15 @@
             </TabView.TabItemTemplate>
         </TabView>
         <Grid x:Name="TerminalHosts" Grid.Row="2" MinHeight="160" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-            <TextBlock x:Name="EmptyMessage" Text="开始使用终端&#10;新建 PowerShell 或 WSL，或从连接页打开 SSH。" TextWrapping="Wrap" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <TextBlock x:Name="EmptyMessage" Text="新建终端" TextWrapping="Wrap" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
         <ScrollViewer Grid.Row="2" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
             <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
         </ScrollViewer>
         <StackPanel Grid.Row="3" Spacing="4">
-            <TextBlock Text="{Binding SelectedTab.TargetDescription}" Style="{StaticResource WinShellPageDescriptionStyle}" IsTextSelectionEnabled="True"/>
-            <TextBlock Text="{Binding SelectedTab.Status}" Style="{StaticResource WinShellStatusTextStyle}"/>
-            <TextBlock x:Name="Feedback" Style="{StaticResource WinShellStatusTextStyle}"/>
+            <TextBlock Text="{Binding SelectedTab.TargetDescription}" Visibility="{Binding SelectedTab.TargetDescription, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellPageDescriptionStyle}" FontSize="12" IsTextSelectionEnabled="True"/>
+            <TextBlock Text="{Binding SelectedTab.Status}" Visibility="{Binding SelectedTab.Status, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
+            <TextBlock x:Name="Feedback" Visibility="{Binding Text, ElementName=Feedback, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
         </StackPanel>
     </Grid>
 </Page>
