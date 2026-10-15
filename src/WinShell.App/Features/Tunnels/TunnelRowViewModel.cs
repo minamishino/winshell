@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using WinShell.Core.Tunnels;
-using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Tunnels;
 public sealed class TunnelRowViewModel(TunnelDefinition definition) : ObservableObject
 {
