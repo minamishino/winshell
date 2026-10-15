@@ -133,16 +133,34 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
     }
     private async Task<RendererFrame> RequestCoreAsync(RendererFrameType type, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stop.Token);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
-        cancellationToken = deadline.Token;
-        await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        await _serial.WaitAsync(admission.Token).ConfigureAwait(false);
         try
         {
-            _reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            var sequence = await WriteAsync(type, data, cancellationToken).ConfigureAwait(false);
-            var response = await _reply.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (response.Type == RendererFrameType.Ack && (response.Payload.Length != 8 || BitConverter.ToUInt64(response.Payload.Span) != sequence)) throw new InvalidDataException("Renderer ACK sequence mismatch.");
+            cancellationToken.ThrowIfCancellationRequested();
+            var reply = _reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            RendererFrame response;
+            try
+            {
+                // Once a frame starts, retain its borrowed payload and reply slot until the exchange
+                // finishes. Caller cancellation cannot leave a partial frame or a reply for the next request.
+                var sequence = await WriteAsync(type, data, deadline.Token).ConfigureAwait(false);
+                response = await reply.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+                if (response.Type == RendererFrameType.Ack && (response.Payload.Length != 8 || BitConverter.ToUInt64(response.Payload.Span) != sequence)) throw new InvalidDataException("Renderer ACK sequence mismatch.");
+            }
+            catch (Exception error)
+            {
+                if (!_stop.IsCancellationRequested)
+                {
+                    Fail(error);
+                    // Close joins this request; never await it from the request itself.
+                    _ = CloseAsync(CancellationToken.None);
+                }
+                throw;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
             return response;
         }
         finally { _reply = null; _serial.Release(); }
