@@ -20,7 +20,7 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     private Task _pending = Task.CompletedTask;
     private DockerTerminalShell _selectedShell;
     private bool _terminalCapacityAvailable = true;
-    public IReadOnlyList<DockerTerminalShell> TerminalShells { get; } = [DockerTerminalShell.Sh, DockerTerminalShell.Bash];
+    public IReadOnlyList<DockerTerminalShell> TerminalShells { get; } = new[] { DockerTerminalShell.Sh, DockerTerminalShell.Bash };
     public DockerTerminalShell SelectedShell
     {
         get => _selectedShell;
