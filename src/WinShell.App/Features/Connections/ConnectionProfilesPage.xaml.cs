@@ -61,7 +61,7 @@ public sealed partial class ConnectionProfilesPage : Page
         EmptyLibrary.Visibility = ViewModel.Profiles.Count == 0 && !ViewModel.IsBusy ? Visibility.Visible : Visibility.Collapsed;
         var searching = !string.IsNullOrWhiteSpace(ViewModel.SearchText);
         EmptyTitle.Text = searching ? "没有匹配的连接" : "还没有连接";
-        EmptyDescription.Text = searching ? "试试其他名称、地址或分组。" : "新建一个连接，保存后即可打开终端或文件。";
+        EmptyDescription.Text = searching ? "换个关键词试试" : "新建连接";
         BusyProgress.Visibility = ViewModel.IsBusy ? Visibility.Visible : Visibility.Collapsed;
         OperationError.Message = ViewModel.ErrorMessage ?? "";
         OperationError.IsOpen = !string.IsNullOrEmpty(ViewModel.ErrorMessage);
