@@ -4,205 +4,132 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:docker="using:WinShell.Core.Docker"
     Loaded="Page_Loaded">
-    <Grid
-        Padding="{StaticResource WinShellPagePadding}"
-        RowSpacing="16">
+    <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="12">
         <Grid.RowDefinitions>
-            <RowDefinition
-                Height="Auto" />
-            <RowDefinition
-                Height="Auto" />
-            <RowDefinition
-                Height="2*" />
-            <RowDefinition
-                Height="Auto" />
-            <RowDefinition
-                Height="Auto" />
-            <RowDefinition
-                Height="*" />
-            <RowDefinition
-                Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <StackPanel
-            Spacing="4">
-            <TextBlock
-                Text="Docker"
-                Style="{StaticResource WinShellPageTitleStyle}" />
-            <TextBlock
-                Text="选择远程容器，打开终端或查看日志。"
-                Style="{StaticResource WinShellPageDescriptionStyle}" />
-        </StackPanel>
-        <Grid
-            Grid.Row="1"
-            ColumnSpacing="8">
+        <TextBlock Text="Docker" Style="{StaticResource WinShellPageTitleStyle}" />
+        <Grid x:Name="DockerToolbar" Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition
-                    Width="*" />
-                <ColumnDefinition
-                    Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <ComboBox
-                x:Name="ProfilesSelector"
-                ItemsSource="{Binding Profiles}"
-                SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
-                DisplayMemberPath="DisplayName"
-                HorizontalAlignment="Stretch"
-                PlaceholderText="选择 SSH 连接"
-                AutomationProperties.Name="Docker 服务器 SSH 配置"
-                IsEnabled="{Binding CanAct}" />
-            <Button
-                x:Name="RefreshButton"
-                Grid.Column="1"
-                Content="验证 / 刷新"
-                Click="Refresh_Click"
-                IsEnabled="{Binding CanAct}"
-                AutomationProperties.Name="验证服务器 Docker 并刷新最近 32 个容器" />
+            <ComboBox x:Name="ProfilesSelector"
+                      ItemsSource="{Binding Profiles}"
+                      SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                      DisplayMemberPath="DisplayName"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Center" MinHeight="32" MinWidth="0"
+                      PlaceholderText="SSH 连接"
+                      AutomationProperties.Name="Docker 服务器 SSH 配置"
+                      IsEnabled="{Binding CanAct}" />
+            <Button x:Name="RefreshButton" Grid.Column="1"
+                    Style="{StaticResource WinShellIconButtonStyle}"
+                    Click="Refresh_Click" IsEnabled="{Binding CanAct}"
+                    ToolTipService.ToolTip="验证并刷新容器"
+                    AutomationProperties.Name="验证服务器 Docker 并刷新最近 32 个容器">
+                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+            </Button>
+            <ComboBox x:Name="TerminalShellSelector" Grid.Column="2"
+                      ItemsSource="{Binding TerminalShells}"
+                      SelectedItem="{Binding SelectedShell, Mode=TwoWay}"
+                      MinWidth="80" MinHeight="32" VerticalAlignment="Center"
+                      AutomationProperties.Name="容器交互终端 shell"
+                      ToolTipService.ToolTip="Sh 使用 /bin/sh，Bash 使用 /bin/bash" />
+            <Button x:Name="OpenTerminalButton" Grid.Column="3"
+                    Content="打开终端" Click="Terminal_Click" IsEnabled="{Binding CanOpenTerminal}"
+                    MinHeight="32" Padding="10,4" VerticalAlignment="Center"
+                    Style="{ThemeResource AccentButtonStyle}"
+                    AutomationProperties.Name="在终端工作区打开选中容器的交互终端" />
+            <Button x:Name="LogsButton" Grid.Column="4" Style="{StaticResource WinShellIconButtonStyle}"
+                    Click="Logs_Click" IsEnabled="{Binding CanAct}" ToolTipService.ToolTip="查看日志"
+                    AutomationProperties.Name="读取选中容器最近 200 行日志">
+                <FontIcon Glyph="&#xE8A5;" FontSize="14" />
+            </Button>
+            <Button x:Name="MoreActionsButton" Grid.Column="5" Style="{StaticResource WinShellIconButtonStyle}"
+                    ToolTipService.ToolTip="容器操作" AutomationProperties.Name="更多容器操作">
+                <FontIcon Glyph="&#xE712;" FontSize="16" />
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="启动" Click="Start_Click" IsEnabled="{Binding CanAct}" />
+                        <MenuFlyoutItem Text="停止…" Click="Stop_Click" IsEnabled="{Binding CanAct}" />
+                        <MenuFlyoutItem Text="重启…" Click="Restart_Click" IsEnabled="{Binding CanAct}" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="取消操作" Click="Cancel_Click" IsEnabled="{Binding IsBusy}" />
+                        <MenuFlyoutItem Text="刷新连接配置" Click="Reload_Click" IsEnabled="{Binding CanAct}" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
         </Grid>
-        <Border
-            Grid.Row="2"
-            Style="{StaticResource WinShellCardStyle}"
-            Padding="0">
-            <ListView
-                x:Name="ContainerList"
-                ItemsSource="{Binding Containers}"
-                SelectedItem="{Binding SelectedContainer, Mode=TwoWay}"
-                SelectionMode="Single"
-                HorizontalContentAlignment="Stretch"
-                AutomationProperties.Name="最近 32 个 Docker 容器">
+        <Border Grid.Row="2" Style="{StaticResource WinShellCardStyle}" Padding="0">
+            <ListView x:Name="ContainerList"
+                      ItemsSource="{Binding Containers}" SelectedItem="{Binding SelectedContainer, Mode=TwoWay}"
+                      SelectionMode="Single" HorizontalContentAlignment="Stretch"
+                      AutomationProperties.Name="最近 32 个 Docker 容器">
                 <ListView.ItemTemplate>
-                    <DataTemplate
-                        x:DataType="docker:DockerContainerSummary">
-                        <StackPanel
-                            Spacing="4"
-                            Padding="8">
-                            <TextBlock
-                                Text="{Binding Names}"
-                                Style="{StaticResource WinShellSectionTitleStyle}"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="{Binding Image}"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="{Binding Status}"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="{Binding Ports}"
-                                Style="{StaticResource WinShellPageDescriptionStyle}" />
-                            <TextBlock
-                                Text="{Binding Id}"
-                                FontFamily="Cascadia Mono"
-                                FontSize="12"
-                                TextWrapping="Wrap"
-                                IsTextSelectionEnabled="True"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
+                    <DataTemplate x:DataType="docker:DockerContainerSummary">
+                        <Grid Padding="8,6" RowSpacing="4" ColumnSpacing="16">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <ToolTipService.ToolTip>
+                                <ToolTip>
+                                    <StackPanel MaxWidth="440" Spacing="4">
+                                        <TextBlock Text="{Binding Names}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Image}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Ports}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Id}" FontFamily="Cascadia Mono" FontSize="12" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </ToolTip>
+                            </ToolTipService.ToolTip>
+                            <TextBlock Text="{Binding Names}" Style="{StaticResource WinShellSectionTitleStyle}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Text="{Binding Status}" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1" Text="{Binding Image}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Ports}" HorizontalAlignment="Right"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
         </Border>
-        <Grid
-            Grid.Row="3"
-            ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition
-                    Width="*" />
-                <ColumnDefinition
-                    Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <ComboBox
-                x:Name="TerminalShellSelector"
-                ItemsSource="{Binding TerminalShells}"
-                SelectedItem="{Binding SelectedShell, Mode=TwoWay}"
-                Header="容器 Shell"
-                HorizontalAlignment="Stretch"
-                AutomationProperties.Name="容器交互终端 shell"
-                ToolTipService.ToolTip="Sh 使用 /bin/sh，Bash 使用 /bin/bash" />
-            <Button
-                x:Name="OpenTerminalButton"
-                Grid.Column="1"
-                Content="打开终端"
-                Click="Terminal_Click"
-                IsEnabled="{Binding CanOpenTerminal}"
-                VerticalAlignment="Bottom"
-                Style="{ThemeResource AccentButtonStyle}"
-                AutomationProperties.Name="在终端工作区打开选中容器的交互终端" />
-        </Grid>
-        <StackPanel
-            Grid.Row="4"
-            Spacing="8">
-            <CommandBar
-                DefaultLabelPosition="Right"
-                AutomationProperties.Name="容器操作">
-                <AppBarButton
-                    Icon="Document"
-                    Label="日志"
-                    Click="Logs_Click"
-                    IsEnabled="{Binding CanAct}"
-                    AutomationProperties.Name="读取选中容器最近 200 行日志" />
-                <AppBarButton
-                    Icon="Play"
-                    Label="启动"
-                    Click="Start_Click"
-                    IsEnabled="{Binding CanAct}" />
-                <AppBarButton
-                    Icon="Cancel"
-                    Label="取消"
-                    Click="Cancel_Click"
-                    IsEnabled="{Binding IsBusy}" />
-                <CommandBar.SecondaryCommands>
-                    <AppBarButton
-                        Icon="Stop"
-                        Label="停止…"
-                        Click="Stop_Click"
-                        IsEnabled="{Binding CanAct}" />
-                    <AppBarButton
-                        Icon="Refresh"
-                        Label="重启…"
-                        Click="Restart_Click"
-                        IsEnabled="{Binding CanAct}" />
-                    <AppBarButton
-                        Icon="Refresh"
-                        Label="刷新连接配置"
-                        Click="Reload_Click"
-                        IsEnabled="{Binding CanAct}" />
-                </CommandBar.SecondaryCommands>
-            </CommandBar>
-            <Expander
-                Header="一次性命令与服务器要求"
-                HorizontalAlignment="Stretch"
-                HorizontalContentAlignment="Stretch">
-                <StackPanel
-                    Spacing="8">
-                    <TextBlock
-                        Text="仅支持 Linux / POSIX。服务器需已安装 Docker CLI，SSH 账号需有 /var/run/docker.sock 权限。"
-                        Style="{StaticResource WinShellPageDescriptionStyle}" />
-                    <TextBox
-                        Text="{Binding CommandText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                        Header="一次性容器命令"
-                        MaxLength="4096"
-                        AutomationProperties.Name="一次性容器命令"
-                        ToolTipService.ToolTip="使用 /bin/sh -c，最多 4096 UTF-8 字节" />
-                    <Button
-                        Content="执行…"
-                        Click="Command_Click"
-                        IsEnabled="{Binding CanAct}"
-                        AutomationProperties.Name="确认执行一次性容器命令" />
-                </StackPanel>
-            </Expander>
-        </StackPanel>
-        <TextBox
-            Grid.Row="5"
-            Text="{Binding Output, Mode=OneWay}"
-            IsReadOnly="True"
-            AcceptsReturn="True"
-            TextWrapping="Wrap"
-            Header="操作结果"
-            FontFamily="Cascadia Mono"
-            AutomationProperties.Name="Docker 有限操作结果"
-            ToolTipService.ToolTip="标准输出最多 32 KiB，错误输出最多 16 KiB" />
-        <TextBlock
-            Grid.Row="6"
-            Text="{Binding Status}"
-            Style="{StaticResource WinShellStatusTextStyle}" />
+        <ScrollViewer x:Name="DockerDetailsViewport" Grid.Row="3" MaxHeight="240"
+                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                      HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="12">
+                <Expander Header="容器详情" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          ToolTipService.ToolTip="仅支持 Linux / POSIX。服务器需安装 Docker CLI，SSH 账号需有 /var/run/docker.sock 权限。">
+                    <StackPanel Spacing="12">
+                        <TextBox Text="{Binding SelectedContainer.Id, Mode=OneWay}" IsReadOnly="True" Header="容器 ID"
+                                 Visibility="{Binding SelectedContainer.Id, Converter={StaticResource WinShellTextVisibility}}"
+                                 AutomationProperties.Name="所选容器完整 ID"/>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding CommandText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="容器命令" MaxLength="4096"
+                                     AutomationProperties.Name="一次性容器命令"
+                                     ToolTipService.ToolTip="使用 /bin/sh -c，最多 4096 UTF-8 字节" />
+                            <Button Grid.Column="1" Content="执行…" Click="Command_Click" IsEnabled="{Binding CanAct}"
+                                    Style="{StaticResource WinShellToolbarButtonStyle}"
+                                    AutomationProperties.Name="确认执行一次性容器命令" />
+                        </Grid>
+                    </StackPanel>
+                </Expander>
+                <TextBox x:Name="OutputPanel" Text="{Binding Output, Mode=OneWay}"
+                         Visibility="{Binding Output, Converter={StaticResource WinShellTextVisibility}}"
+                         IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="96" MaxHeight="200"
+                         Header="操作结果" FontFamily="Cascadia Mono"
+                         AutomationProperties.Name="Docker 有限操作结果"
+                         ToolTipService.ToolTip="标准输出最多 32 KiB，错误输出最多 16 KiB" />
+            </StackPanel>
+        </ScrollViewer>
+        <TextBlock Grid.Row="4" Text="{Binding Status}" Style="{StaticResource WinShellStatusTextStyle}"
+                   Visibility="{Binding Status, Converter={StaticResource WinShellTextVisibility}}" />
     </Grid>
 </Page>
