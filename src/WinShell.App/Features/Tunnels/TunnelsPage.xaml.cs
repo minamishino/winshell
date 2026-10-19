@@ -1,5 +1,6 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
@@ -40,6 +41,11 @@ public sealed partial class TunnelsPage : Page
     private void Profiles_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (SaveButton is not null) SaveButton.IsEnabled = Profiles.SelectedItem is ConnectionProfile;
+    }
+    private void Definitions_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        AutomationProperties.SetName(args.ItemContainer,
+            !args.InRecycleQueue && args.Item is TunnelRowViewModel row ? row.Name : string.Empty);
     }
     private void Kind_SelectionChanged(object sender,SelectionChangedEventArgs args) { if(TargetFields is not null) TargetFields.Visibility=Kind.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible; }
     private void Definitions_SelectionChanged(object sender,SelectionChangedEventArgs args)

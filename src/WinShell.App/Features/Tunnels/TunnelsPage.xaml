@@ -80,6 +80,7 @@
         </Expander>
         <Border Grid.Row="2" Style="{StaticResource WinShellCardStyle}" Padding="0">
             <ListView x:Name="Definitions" ItemsSource="{Binding Rows}" SelectionChanged="Definitions_SelectionChanged"
+                      ContainerContentChanging="Definitions_ContainerContentChanging"
                       HorizontalContentAlignment="Stretch" AutomationProperties.Name="已保存的 SSH 隧道" SelectionMode="Single">
                 <ListView.ItemTemplate>
                     <DataTemplate>

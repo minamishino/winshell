@@ -5,6 +5,8 @@ public sealed class TunnelRowViewModel(TunnelDefinition definition) : Observable
 {
     public TunnelDefinition Definition { get; } = definition;
     public string Name => Definition.Name;
+    // WinUI uses the item's string representation to name realized and virtualized list entries.
+    public override string ToString() => Name;
     public string Kind => Definition.Kind switch { TunnelKind.Local => "本地转发", TunnelKind.Remote => "远程转发", _ => "动态 SOCKS" };
     private string _status = "已停止", _error = "";
     private ushort _boundPort;
