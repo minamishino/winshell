@@ -50,6 +50,7 @@
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <ComboBox x:Name="Profiles" Header="SSH 连接" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch"
+                                  SelectionChanged="Profiles_SelectionChanged"
                                   VerticalAlignment="Bottom" AutomationProperties.Name="隧道 SSH 连接" />
                         <TextBox x:Name="TunnelName" Grid.Column="1" Header="名称" MaxLength="128" VerticalAlignment="Bottom"
                                  AutomationProperties.Name="隧道名称" />
@@ -71,7 +72,7 @@
                         <NumberBox x:Name="TargetPort" Grid.Column="1" Header="目标端口" Minimum="1" Maximum="65535" Value="22"
                                    SpinButtonPlacementMode="Compact" VerticalAlignment="Bottom" AutomationProperties.Name="目标端口" />
                     </Grid>
-                    <Button x:Name="SaveButton" Content="保存定义" Click="Save_Click"
+                    <Button x:Name="SaveButton" Content="保存定义" Click="Save_Click" IsEnabled="False"
                             Style="{StaticResource WinShellToolbarButtonStyle}" ToolTipService.ToolTip="保存后手动启动隧道"
                             AutomationProperties.Name="保存隧道定义" />
                 </StackPanel>

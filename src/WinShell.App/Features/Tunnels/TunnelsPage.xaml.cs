@@ -27,8 +27,20 @@ public sealed partial class TunnelsPage : Page
     private Task<bool> ConfirmAsync(TunnelStartResult.UnknownHostKey challenge,CancellationToken token)=>_dialogs.ConfirmAsync(XamlRoot,"确认隧道主机公钥",$"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证。请核实指纹后信任并重新连接。","信任并连接",token);
     public Task LoadAsync()=>RunAsync(async()=>{
         await ViewModel.LoadAsync(_stop.Token); var saved=await _profiles.ReadAsync(_stop.Token); _stop.Token.ThrowIfCancellationRequested();
-        Profiles.ItemsSource=saved.Profiles.Where(profile=>profile.Protocol==ConnectionProtocol.Ssh).ToArray(); Profiles.SelectedIndex=Profiles.Items.Count==0?-1:0;
+        var initialLoad = Profiles.ItemsSource is null;
+        var selectedProfileId = (Profiles.SelectedItem as ConnectionProfile)?.Id;
+        if (initialLoad) selectedProfileId ??= (Definitions.SelectedItem as TunnelRowViewModel)?.Definition.ProfileId;
+        var sshProfiles = saved.Profiles.Where(profile => profile.Protocol == ConnectionProtocol.Ssh).ToArray();
+        Profiles.ItemsSource = sshProfiles;
+        // Preserve unsaved editor choices by identity; a removed profile must never select another host.
+        Profiles.SelectedItem = selectedProfileId is { } profileId
+            ? sshProfiles.FirstOrDefault(profile => profile.Id == profileId)
+            : initialLoad ? sshProfiles.FirstOrDefault() : null;
     });
+    private void Profiles_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (SaveButton is not null) SaveButton.IsEnabled = Profiles.SelectedItem is ConnectionProfile;
+    }
     private void Kind_SelectionChanged(object sender,SelectionChangedEventArgs args) { if(TargetFields is not null) TargetFields.Visibility=Kind.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible; }
     private void Definitions_SelectionChanged(object sender,SelectionChangedEventArgs args)
     {
