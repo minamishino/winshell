@@ -13,6 +13,8 @@ public sealed class ConnectionProfileListItemViewModel(ConnectionProfile profile
 {
     public ConnectionProfile Profile { get; } = profile;
     public string DisplayName => Profile.DisplayName;
+    // WinUI uses the item's string representation to name realized and virtualized list entries.
+    public override string ToString() => DisplayName;
     public string ProtocolLabel => Profile.Protocol switch
     {
         ConnectionProtocol.Ssh => "SSH",

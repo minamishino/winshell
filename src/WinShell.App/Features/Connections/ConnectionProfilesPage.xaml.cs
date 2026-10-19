@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -204,6 +205,12 @@ public sealed partial class ConnectionProfilesPage : Page
             if (await _dialogs.ConfirmAsync(XamlRoot, "删除此连接配置？", "将先删除此连接的凭据，再删除配置。此操作无法撤销。", "删除", _dialogCancellation.Token) && !_closing)
                 await ViewModel.DeleteProfileAsync(profile.Id, _dialogCancellation.Token);
         });
+    }
+
+    private void ProfilesList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        AutomationProperties.SetName(args.ItemContainer,
+            !args.InRecycleQueue && args.Item is ConnectionProfileListItemViewModel row ? row.DisplayName : string.Empty);
     }
 
     public void FocusProfiles() => ProfilesList.Focus(FocusState.Programmatic);

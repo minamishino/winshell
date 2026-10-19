@@ -31,6 +31,7 @@
         </Grid>
         <Grid Grid.Row="2">
             <ListView x:Name="ProfilesList" IsEnabled="{Binding CanEdit}" SelectionMode="Single" ToolTipService.ToolTip="Enter 或双击打开连接"
+                      ContainerContentChanging="ProfilesList_ContainerContentChanging"
                       SelectionChanged="ProfilesList_SelectionChanged" DoubleTapped="ProfilesList_DoubleTapped" KeyDown="ProfilesList_KeyDown" AutomationProperties.Name="连接配置列表">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,2"/></Style>
