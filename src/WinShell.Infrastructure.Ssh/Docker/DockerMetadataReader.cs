@@ -35,17 +35,19 @@ public static class DockerMetadataReader
                     reason = $"{fieldLabel} 超过 1024 UTF-8 字节，或包含 NUL / 无效 Unicode";
                     DockerScriptBuilder.ValidateText(fields[field.Name], 1024);
                 }
-                string Required(string name)
-                {
-                    reason = "缺少字段 " + name;
-                    return fields.TryGetValue(name, out var value) ? value : throw new JsonException(reason);
-                }
                 var identifier = Required("ID");
                 reason = "ID 必须为完整的 64 位小写十六进制标识";
                 DockerScriptBuilder.Identifier(identifier);
                 reason = "容器 ID 重复";
                 if (!identifiers.Add(identifier)) throw new JsonException("重复容器 ID。");
-                containers.Add(new(identifier, Required("Names"), Required("Image"), Required("State"), Required("Status"), Required("Ports")));
+                containers.Add(new DockerContainerSummary(identifier, Required("Names"), Required("Image"), Required("State"), Required("Status"), Required("Ports")));
+                continue;
+
+                string Required(string name)
+                {
+                    reason = "缺少字段 " + name;
+                    return fields.TryGetValue(name, out var value) ? value : throw new JsonException(reason);
+                }
             }
             return containers.AsReadOnly();
         }
