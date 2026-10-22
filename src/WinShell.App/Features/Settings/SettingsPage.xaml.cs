@@ -6,7 +6,7 @@ using WinShell.App.Features.Mcp;
 using WinShell.Core.Settings;
 namespace WinShell.App.Features.Settings;
 public enum SettingsNavigationTarget { Connections, Files }
-public sealed partial class SettingsPage : Page
+public sealed partial class SettingsPage
 {
     private sealed record Category(string Key, string Name, string Keywords);
     private static readonly Category[] AllCategories =
@@ -53,8 +53,11 @@ public sealed partial class SettingsPage : Page
     }
     private void Model_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(ViewModel.Settings)) UpdateSelection();
-        if (args.PropertyName == nameof(ViewModel.HasSaveFailure)) UpdateRetry();
+        switch (args.PropertyName)
+        {
+            case nameof(ViewModel.Settings): UpdateSelection(); break;
+            case nameof(ViewModel.HasSaveFailure): UpdateRetry(); break;
+        }
     }
     private void UpdateRetry() => RetrySave.Visibility = ViewModel.HasSaveFailure ? Visibility.Visible : Visibility.Collapsed;
     private void UpdateSelection()
@@ -79,30 +82,149 @@ public sealed partial class SettingsPage : Page
         catch (ArgumentException error) { ValidationFeedback.Text = error.Message; UpdateSelection(); }
     }
     private async void Theme_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    { if (ThemeSelector.SelectedIndex >= 0) await ChangeAsync(settings => settings with { Theme = (AppearanceTheme)ThemeSelector.SelectedIndex }); }
+    {
+        try
+        {
+            if (ThemeSelector.SelectedIndex >= 0)
+                await ChangeAsync(settings => settings with { Theme = (AppearanceTheme)ThemeSelector.SelectedIndex });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void Startup_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    { if (StartupSelector.SelectedIndex >= 0) await ChangeAsync(settings => settings with { StartupPage = (StartupPage)StartupSelector.SelectedIndex }); }
+    {
+        try
+        {
+            if (StartupSelector.SelectedIndex >= 0)
+                await ChangeAsync(settings => settings with { StartupPage = (StartupPage)StartupSelector.SelectedIndex });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void Font_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    { if (FontSelector.SelectedIndex >= 0) await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { FontFamily = (TerminalFontFamily)FontSelector.SelectedIndex } }); }
+    {
+        try
+        {
+            if (FontSelector.SelectedIndex >= 0)
+                await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { FontFamily = (TerminalFontFamily)FontSelector.SelectedIndex } });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void FontSize_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
-        if (_updatingSelection) return;
-        if (double.IsFinite(args.NewValue) && args.NewValue is >= 8 and <= 32)
-            await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { FontSize = (int)Math.Round(args.NewValue) } });
-        UpdateSelection();
+        try
+        {
+            if (_updatingSelection)
+                return;
+            if (double.IsFinite(args.NewValue) && args.NewValue is >= 8 and <= 32)
+                await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { FontSize = (int)Math.Round(args.NewValue) } });
+            UpdateSelection();
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
     }
     private async void Cursor_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    { if (CursorSelector.SelectedIndex >= 0) await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { CursorStyle = (TerminalCursorStyle)(CursorSelector.SelectedIndex + 1) } }); }
+    {
+        try
+        {
+            if (CursorSelector.SelectedIndex >= 0)
+                await ChangeAsync(settings => settings with { Terminal = settings.Terminal with { CursorStyle = (TerminalCursorStyle)(CursorSelector.SelectedIndex + 1) } });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void DefaultShell_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    { if (DefaultShellSelector.SelectedIndex >= 0) await ChangeAsync(settings => settings with { DefaultShell = (DefaultShell)DefaultShellSelector.SelectedIndex, WslDistribution = WslDistributionText.Text }); }
+    {
+        try
+        {
+            if (DefaultShellSelector.SelectedIndex >= 0)
+                await ChangeAsync(settings => settings with { DefaultShell = (DefaultShell)DefaultShellSelector.SelectedIndex, WslDistribution = WslDistributionText.Text });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void WslDistribution_LostFocus(object sender, RoutedEventArgs args)
-    { if (!_updatingSelection && WslDistributionText.Text != ViewModel.Settings.WslDistribution) await ChangeAsync(settings => settings with { WslDistribution = WslDistributionText.Text }); }
+    {
+        try
+        {
+            if (!_updatingSelection && WslDistributionText.Text != ViewModel.Settings.WslDistribution)
+                await ChangeAsync(settings => settings with { WslDistribution = WslDistributionText.Text });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private async void WslDistribution_KeyDown(object sender, KeyRoutedEventArgs args)
-    { if (args.Key == Windows.System.VirtualKey.Enter) { args.Handled = true; await ChangeAsync(settings => settings with { WslDistribution = WslDistributionText.Text }); } }
-    private async void Multiline_Toggled(object sender, RoutedEventArgs args) => await ChangeAsync(settings => settings with { ConfirmMultilinePaste = MultilineSwitch.IsOn });
-    private async void Close_Toggled(object sender, RoutedEventArgs args) => await ChangeAsync(settings => settings with { ConfirmTabClose = CloseSwitch.IsOn });
-    private async void Reload_Click(object sender, RoutedEventArgs args) => await ViewModel.LoadAsync();
-    private async void Save_Click(object sender, RoutedEventArgs args) => await ViewModel.SaveAsync();
+    {
+        try
+        {
+            if (args.Key != Windows.System.VirtualKey.Enter) return;
+            args.Handled = true;
+            await ChangeAsync(settings => settings with { WslDistribution = WslDistributionText.Text });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
+    private async void Multiline_Toggled(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await ChangeAsync(settings => settings with { ConfirmMultilinePaste = MultilineSwitch.IsOn });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
+    private async void Close_Toggled(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await ChangeAsync(settings => settings with { ConfirmTabClose = CloseSwitch.IsOn });
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
+    private async void Reload_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await ViewModel.LoadAsync();
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
+    private async void Save_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await ViewModel.SaveAsync();
+        }
+        catch (Exception)
+        {
+            ValidationFeedback.Text = "设置操作未能完成，请重试。";
+        }
+    }
     private void Connections_Click(object sender, RoutedEventArgs args) => _navigate?.Invoke(SettingsNavigationTarget.Connections);
     private void Files_Click(object sender, RoutedEventArgs args) => _navigate?.Invoke(SettingsNavigationTarget.Files);
     private void Search_TextChanged(object sender, TextChangedEventArgs args)
