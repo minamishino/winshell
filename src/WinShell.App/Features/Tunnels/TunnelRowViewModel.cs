@@ -1,18 +1,19 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using WinShell.Core.Tunnels;
 namespace WinShell.App.Features.Tunnels;
-public sealed class TunnelRowViewModel(TunnelDefinition definition) : ObservableObject
+public sealed partial class TunnelRowViewModel(TunnelDefinition definition) : ObservableObject
 {
     public TunnelDefinition Definition { get; } = definition;
     public string Name => Definition.Name;
     public string Kind => Definition.Kind switch { TunnelKind.Local => "本地转发", TunnelKind.Remote => "远程转发", _ => "动态 SOCKS" };
-    private string _status = "已停止", _error = "";
-    private ushort _boundPort;
-    private int _activeConnections;
-    public string Status { get => _status; internal set => SetProperty(ref _status,value); }
-    public string Error { get => _error; internal set => SetProperty(ref _error,value); }
-    public ushort BoundPort { get => _boundPort; private set => SetProperty(ref _boundPort,value); }
-    public int ActiveConnections { get => _activeConnections; private set => SetProperty(ref _activeConnections,value); }
+    [ObservableProperty]
+    public partial string Status { get; internal set; } = "已停止";
+    [ObservableProperty]
+    public partial string Error { get; internal set; } = "";
+    [ObservableProperty]
+    public partial ushort BoundPort { get; private set; }
+    [ObservableProperty]
+    public partial int ActiveConnections { get; private set; }
     internal ITunnelSession? Session;
     internal CancellationTokenSource? Cancellation;
     internal Task Operation = Task.CompletedTask;
