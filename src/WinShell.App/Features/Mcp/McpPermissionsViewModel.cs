@@ -6,17 +6,17 @@ using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Mcp;
 
 // Dispatcher-affine. Every save rechecks the exact profile/key the user saw before writing.
-public sealed class McpPermissionsViewModel(IConnectionProfileRepository profiles, IKnownHostRepository hosts, IMcpGrantRepository grants) : ObservableObject, IAsyncDisposable
+public sealed partial class McpPermissionsViewModel(IConnectionProfileRepository profiles, IKnownHostRepository hosts, IMcpGrantRepository grants) : ObservableObject, IAsyncDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
     private Task _pending = Task.CompletedTask;
     private Task? _close;
     private bool _busy, _closed, _loaded;
-    private string _status = "尚未读取权限。";
-    private IReadOnlyList<McpProfileGrantViewModel> _profiles = [];
-    public IReadOnlyList<McpProfileGrantViewModel> Profiles { get => _profiles; private set => SetProperty(ref _profiles, value); }
+    [ObservableProperty]
+    public partial IReadOnlyList<McpProfileGrantViewModel> Profiles { get; private set; } = [];
     public bool CanEdit => !_busy && !_closed;
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "尚未读取权限。";
 
     public void ReportDialogFailure() => Status = "权限确认对话框未能完成，未保存授权。";
     public Task LoadAsync() => RunAsync(async token =>
@@ -29,9 +29,9 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
         var rows = new List<McpProfileGrantViewModel>();
         foreach (var profile in saved.Profiles.Where(profile => profile.Protocol == ConnectionProtocol.Ssh))
         {
-            var key = await hosts.ReadAsync(new(profile.Host, profile.Port), token);
+            var key = await hosts.ReadAsync(new SshEndpointIdentity(profile.Host, profile.Port), token);
             var grant = permissions.SingleOrDefault(item => item.ProfileId == profile.Id);
-            rows.Add(new(profile, key, grant));
+            rows.Add(new McpProfileGrantViewModel(profile, key, grant));
         }
         Profiles = rows; // One collection replacement keeps dispatcher updates bounded.
         _loaded = true;
@@ -49,7 +49,7 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
         {
             var matches = current.Profiles.Where(profile => profile.Id == row.Profile.Id).ToArray();
             if (matches.Length != 1 || row.Key is null) throw new InvalidDataException("配置已删除或主机尚未信任，请重新加载。");
-            var key = await hosts.ReadAsync(new(matches[0].Host, matches[0].Port), token);
+            var key = await hosts.ReadAsync(new SshEndpointIdentity(matches[0].Host, matches[0].Port), token);
             if (key is null || !key.Equals(row.Key) || McpGrant.BindProfile(matches[0]) != McpGrant.BindProfile(row.Profile))
                 throw new InvalidDataException("配置或主机公钥已变化，请重新加载并重新选择授权。");
             result.Add(McpGrant.Create(row.Profile, row.Key, row.ListProfiles, row.RunScript, row.DockerRead, row.DockerControl, row.DockerExec));
@@ -84,18 +84,30 @@ public sealed class McpPermissionsViewModel(IConnectionProfileRepository profile
     }
     public ValueTask DisposeAsync()
     {
-        if (_close is not null) return new(_close);
+        if (_close is not null) return new ValueTask(_close);
         _closed = true; OnPropertyChanged(nameof(CanEdit));
-        return new(_close = CloseAsync());
+        return new ValueTask(_close = CloseAsync());
     }
     private async Task CloseAsync()
     {
-        _lifetime.Cancel();
-        try { await _pending; } finally { _lifetime.Dispose(); }
+        List<Exception> failures = [];
+        try { await _lifetime.CancelAsync(); }
+        catch (Exception error) { failures.Add(error); }
+        try { await _pending; }
+        catch (Exception error) { failures.Add(error); }
+        finally { _lifetime.Dispose(); }
+        var failure = failures.Count switch
+        {
+            0 => null,
+            1 => failures[0],
+            _ => new AggregateException("权限操作关闭失败，已等待保存结束。", failures)
+        };
+        if (failure is null) return;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 }
 
-public sealed class McpProfileGrantViewModel : ObservableObject
+public sealed partial class McpProfileGrantViewModel : ObservableObject
 {
     private bool _listProfiles, _runScript, _dockerRead, _dockerControl, _dockerExec;
     public McpProfileGrantViewModel(ConnectionProfile profile, SshHostKey? key, McpGrant? grant)
