@@ -33,7 +33,7 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
             if (scopes.Contains(McpGrant.ProfileListScope)) tools.Add(ProfileMetadataTool.Definition);
             if (scopes.Contains(McpGrant.ScriptScope)) tools.Add(ScriptDefinition);
             tools.AddRange(DockerToolDefinitions.All.Where(tool => scopes.Contains(DockerToolDefinitions.Scope(tool.Name)!)));
-            return new() { Tools = tools };
+            return new ListToolsResult { Tools = tools };
         }
         catch (Exception error) when (FailureCode(error) is not null) { throw new McpException(FailureCode(error)!); }
         finally { Interlocked.Decrement(ref _active); }
@@ -42,7 +42,8 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
     {
         var metadata = parameters?.Name == McpGrant.ProfileListScope;
         var dockerScope = DockerToolDefinitions.Scope(parameters?.Name);
-        Guid profileId = default; string? script = null, containerId = null, command = null;
+        var profileId = Guid.Empty;
+        string? script = null, containerId = null, command = null;
         if (dockerScope is not null && !DockerToolDefinitions.Arguments(parameters!, out profileId, out containerId, out command))
             return DockerToolResult.Failure("invalid_arguments", parameters!.Name, profileId, null);
         if (dockerScope is null && (metadata ? parameters!.Arguments is { Count: > 0 } : !Arguments(parameters, out profileId, out script))) return Error("invalid_arguments");
@@ -85,8 +86,10 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
         {
             var code = error.Kind switch { DockerFailureKind.Unconfirmed => "result_unconfirmed", DockerFailureKind.Capacity => "output_limit",
                 DockerFailureKind.InvalidInput => "invalid_arguments", DockerFailureKind.InvalidMetadata => "invalid_output", _ => "unsupported_capability" };
-            return DockerToolResult.Failure(code, parameters!.Name, profileId, containerId,
-                code == "result_unconfirmed" ? (error.InnerException is null ? "missing_result" : FailureCode(error.InnerException) ?? "remote_failure") : null);
+            string? firstCause = null;
+            if (code == "result_unconfirmed")
+                firstCause = error.InnerException is null ? "missing_result" : FailureCode(error.InnerException) ?? "remote_failure";
+            return DockerToolResult.Failure(code, parameters!.Name, profileId, containerId, firstCause);
         }
         catch (Exception error) when (FailureCode(error) is not null)
         { return dockerScope is null ? Error(FailureCode(error)!) : DockerToolResult.Failure(FailureCode(error)!, parameters!.Name, profileId, containerId); }
@@ -99,7 +102,7 @@ public sealed class McpToolService(McpPermissionReader permissions, Func<McpAuth
     }
     private static bool Arguments(CallToolRequestParams? parameters, out Guid profileId, out string? script)
     {
-        profileId = default; script = null;
+        profileId = Guid.Empty; script = null;
         if (parameters?.Name != McpGrant.ScriptScope || parameters.Arguments is not { Count: 2 } arguments ||
             !arguments.TryGetValue("profileId", out var id) || id.ValueKind != JsonValueKind.String ||
             !arguments.TryGetValue("script", out var body) || body.ValueKind != JsonValueKind.String) return false;
