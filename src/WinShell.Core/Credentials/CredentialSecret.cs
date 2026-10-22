@@ -7,7 +7,7 @@ public sealed class CredentialSecret : IDisposable
     private readonly byte[] _buffer;
     private bool _disposed;
 
-    public CredentialSecret(ReadOnlySpan<byte> secret) => _buffer = secret.ToArray();
+    public CredentialSecret(ReadOnlySpan<byte> secret) => _buffer = [.. secret];
 
     /// <summary>Borrowed bytes; the owner must outlive use and must not be disposed concurrently.</summary>
     public ReadOnlyMemory<byte> Bytes
