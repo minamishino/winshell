@@ -6,7 +6,7 @@ using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Ssh;
 
 // UI-affine; owners includes hidden tabs until every close has settled.
-public sealed class SshWorkspaceViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class SshWorkspaceViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ISshSessionFactory _factory;
     private readonly IKnownHostRepository _knownHosts;
@@ -16,20 +16,20 @@ public sealed class SshWorkspaceViewModel : ObservableObject, IAsyncDisposable
     private readonly HashSet<SshSessionViewModel> _owners = [];
     private readonly Dictionary<SshSessionViewModel, Task> _closing = [];
     private readonly List<Exception> _cleanupFailures = [];
-    private SshSessionViewModel? _selectedTab;
+
     private bool _disposed;
     private Task? _disposal;
     public SshWorkspaceViewModel(ISshSessionFactory factory, IKnownHostRepository knownHosts,
         Func<SshConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm, SynchronizationContext context)
-    { _factory = factory; _knownHosts = knownHosts; _confirm = confirm; _context = context; Tabs = new(_tabs); }
+    { _factory = factory; _knownHosts = knownHosts; _confirm = confirm; _context = context; Tabs = new ReadOnlyObservableCollection<SshSessionViewModel>(_tabs); }
     public ReadOnlyObservableCollection<SshSessionViewModel> Tabs { get; }
     public SshSessionViewModel? SelectedTab
     {
-        get => _selectedTab;
+        get;
         set
         {
             if (value is not null && !_tabs.Contains(value)) throw new ArgumentException("SSH 标签不属于此工作区。");
-            SetProperty(ref _selectedTab, value);
+            SetProperty(ref field, value);
         }
     }
     public SshSessionViewModel OpenProfile(ConnectionProfile profile)
@@ -41,7 +41,7 @@ public sealed class SshWorkspaceViewModel : ObservableObject, IAsyncDisposable
         if (tab is null)
         {
             if (_owners.Count >= 16) throw new InvalidOperationException("最多拥有 16 个 SSH 会话（包括正在关闭的会话），请等待或先关闭一个。");
-            tab = new(profile, _factory, _knownHosts, _confirm, _context);
+            tab = new SshSessionViewModel(profile, _factory, _knownHosts, _confirm, _context);
             _owners.Add(tab);
             _tabs.Add(tab);
         }
@@ -71,10 +71,10 @@ public sealed class SshWorkspaceViewModel : ObservableObject, IAsyncDisposable
     }
     public ValueTask DisposeAsync()
     {
-        if (_disposal is not null) return new(_disposal);
+        if (_disposal is not null) return new ValueTask(_disposal);
         _disposed = true;
         _disposal = DisposeCoreAsync();
-        return new(_disposal);
+        return new ValueTask(_disposal);
     }
     private async Task DisposeCoreAsync()
     {
