@@ -5,7 +5,7 @@ namespace WinShell.App.Features.Terminal;
 
 // The last 16 KiB is a ended-session diagnostic, never an interactive terminal surface.
 // Delegate CopyTo to the source so its borrowed block stays owned through the renderer ACK.
-internal sealed class TerminalDiagnosticSession(IShellSession inner) : IShellSession
+internal sealed partial class TerminalDiagnosticSession(IShellSession inner) : IShellSession
 {
     private readonly DiagnosticOutput _output = new(inner.Output);
     internal IShellSessionExit? Result => inner as IShellSessionExit;
@@ -18,7 +18,7 @@ internal sealed class TerminalDiagnosticSession(IShellSession inner) : IShellSes
     public ValueTask CloseAsync(CancellationToken token) => inner.CloseAsync(token);
     public ValueTask DisposeAsync() => inner.DisposeAsync();
 
-    private sealed class DiagnosticOutput(Stream source) : Stream
+    private sealed partial class DiagnosticOutput(Stream source) : Stream
     {
         private const int Capacity = 16 * 1024;
         private readonly byte[] _tail = new byte[Capacity];
@@ -54,7 +54,7 @@ internal sealed class TerminalDiagnosticSession(IShellSession inner) : IShellSes
         { var count = await source.ReadAsync(buffer, token).ConfigureAwait(false); Append(buffer.Span[..count]); return count; }
         public override int Read(byte[] buffer, int offset, int count)
         { var read = source.Read(buffer, offset, count); Append(buffer.AsSpan(offset, read)); return read; }
-        private sealed class CaptureDestination(DiagnosticOutput owner, Stream destination) : Stream
+        private sealed partial class CaptureDestination(DiagnosticOutput owner, Stream destination) : Stream
         {
             public override Task WriteAsync(byte[] bytes, int offset, int count, CancellationToken token) => WriteAsync(bytes.AsMemory(offset, count), token).AsTask();
             public override async ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken token = default)
