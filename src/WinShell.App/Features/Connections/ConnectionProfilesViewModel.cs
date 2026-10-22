@@ -9,27 +9,24 @@ using WinShell.Core.Profiles;
 namespace WinShell.App.Features.Connections;
 
 // UI-affine: callers use the dispatcher context; awaits deliberately preserve that context.
-public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class ConnectionProfilesViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly IConnectionProfileRepository _repository;
     private readonly ICredentialStore _credentials;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly ProfileCollection _visibleProfiles = new();
+    private readonly ProfileCollection _visibleProfiles = [];
     private readonly ObservableCollection<ConnectionProfileGroupViewModel> _profileGroups = [];
     private readonly List<ConnectionProfile> _allProfiles = [];
     private Task _activeOperation = Task.CompletedTask;
     private Task? _disposal;
-    private bool _disposed, _isBusy;
-    private string _searchText = "";
-    private string? _errorMessage, _statusMessage;
-    private ConnectionProfile? _selectedProfile;
+    private bool _disposed;
 
     public ConnectionProfilesViewModel(IConnectionProfileRepository repository, ICredentialStore credentials)
     {
         _repository = repository;
         _credentials = credentials;
-        Profiles = new(_visibleProfiles);
-        ProfileGroups = new(_profileGroups);
+        Profiles = new ReadOnlyObservableCollection<ConnectionProfile>(_visibleProfiles);
+        ProfileGroups = new ReadOnlyObservableCollection<ConnectionProfileGroupViewModel>(_profileGroups);
     }
 
     public ReadOnlyObservableCollection<ConnectionProfile> Profiles { get; }
@@ -37,17 +34,20 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     public event EventHandler<Guid>? ProfileDeleted;
     // The window binds this to the actual terminal page; the lease spans every repository/vault write.
     public Func<Guid, CancellationToken, Task<IDisposable>>? BeginTerminalProfileMutationAsync { get; set; }
-    public ConnectionProfile? SelectedProfile { get => _selectedProfile; set => SetProperty(ref _selectedProfile, value); }
+    [ObservableProperty]
+    public partial ConnectionProfile? SelectedProfile { get; set; }
     public string SearchText
     {
-        get => _searchText;
-        set { if (!_disposed && SetProperty(ref _searchText, value)) ApplySearch(); }
-    }
-    public bool IsBusy { get => _isBusy; private set { if (SetProperty(ref _isBusy, value)) OnPropertyChanged(nameof(CanEdit)); } }
+        get;
+        set { if (!_disposed && SetProperty(ref field, value)) ApplySearch(); }
+    } = "";
+    public bool IsBusy { get; private set { if (SetProperty(ref field, value)) OnPropertyChanged(nameof(CanEdit)); } }
     public bool CanEdit => !IsBusy && !_disposed;
-    public string? ErrorMessage { get => _errorMessage; private set => SetProperty(ref _errorMessage, value); }
-    public string? StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
-    public void ReportValidationError(string message) { if (!_disposed) { ErrorMessage = message; StatusMessage = null; } }
+    [ObservableProperty]
+    public partial string? ErrorMessage { get; private set; }
+    [ObservableProperty]
+    public partial string? StatusMessage { get; private set; }
+    public void ReportValidationError(string message) { if (_disposed) return; ErrorMessage = message; StatusMessage = null; }
 
     public Task LoadAsync(CancellationToken cancellationToken) => RunAsync(async token =>
     {
@@ -179,7 +179,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
 
     private void RequireSavedProfile(Guid profileId)
     {
-        if (!_allProfiles.Any(profile => profile.Id == profileId))
+        if (_allProfiles.All(profile => profile.Id != profileId))
             throw new ArgumentException("请先保存连接配置，再管理其凭据。");
     }
     private async Task<IDisposable?> BeginMutationAsync(Guid profileId, CancellationToken token)
@@ -222,7 +222,7 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         OperationCanceledException => "操作已取消。",
         CredentialOperationUnconfirmedException => "Windows 凭据写入或删除结果尚未确认，请检查凭据状态后再操作。",
         UnauthorizedAccessException => "没有访问配置或凭据的权限。",
-        System.ComponentModel.Win32Exception => "Windows 凭据管理器操作失败，请检查当前用户权限。",
+        Win32Exception => "Windows 凭据管理器操作失败，请检查当前用户权限。",
         InvalidDataException => "配置文件无效或版本不受支持，未覆盖原文件。",
         NotSupportedException => "当前应用不支持此配置版本或格式，未覆盖原文件。请使用兼容的应用版本。",
         IOException => "配置文件读写失败，请检查磁盘空间、文件权限或占用。",
@@ -236,30 +236,30 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
     {
         var query = SearchText.Trim();
         var selectedId = SelectedProfile?.Id;
-        _visibleProfiles.Replace(_allProfiles.Where(profile =>
+        _visibleProfiles.Replace([.. _allProfiles.Where(profile =>
             profile.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
             profile.GroupName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            profile.Host.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray());
+            profile.Host.Contains(query, StringComparison.OrdinalIgnoreCase))]);
         SelectedProfile = _visibleProfiles.FirstOrDefault(profile => profile.Id == selectedId);
         _profileGroups.Clear();
         foreach (var group in _visibleProfiles.GroupBy(profile => string.IsNullOrWhiteSpace(profile.GroupName) ? "未分组" : profile.GroupName.Trim())
                      .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase))
-            _profileGroups.Add(new(group.Key, group.OrderBy(profile => profile.DisplayName, StringComparer.CurrentCultureIgnoreCase)));
+            _profileGroups.Add(new ConnectionProfileGroupViewModel(group.Key, group.OrderBy(profile => profile.DisplayName, StringComparer.CurrentCultureIgnoreCase)));
         OnPropertyChanged(nameof(ProfileGroups));
     }
 
     public ValueTask DisposeAsync()
     {
-        if (_disposal is not null) return new(_disposal);
+        if (_disposal is not null) return new ValueTask(_disposal);
         _disposed = true;
         OnPropertyChanged(nameof(CanEdit));
         _disposal = SettleAsync();
-        return new(_disposal);
+        return new ValueTask(_disposal);
     }
     private async Task SettleAsync()
     {
         List<Exception> failures = [];
-        try { _lifetime.Cancel(); }
+        try { await _lifetime.CancelAsync(); }
         catch (Exception exception) { failures.Add(exception); }
         try { await _activeOperation; }
         catch (Exception exception) { failures.Add(exception); }
@@ -267,9 +267,9 @@ public sealed class ConnectionProfilesViewModel : ObservableObject, IAsyncDispos
         if (failures.Count != 0) throw new AggregateException("配置操作关闭时发生错误，已等待操作结束。", failures);
     }
 
-    private sealed class ProfileCollection : ObservableCollection<ConnectionProfile>
+    private sealed partial class ProfileCollection : ObservableCollection<ConnectionProfile>
     {
-        public void Replace(IReadOnlyList<ConnectionProfile> profiles)
+        public void Replace(ConnectionProfile[] profiles)
         {
             Items.Clear();
             foreach (var profile in profiles) Items.Add(profile);
