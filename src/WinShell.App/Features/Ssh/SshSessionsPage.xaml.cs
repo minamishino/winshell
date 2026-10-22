@@ -7,7 +7,7 @@ using WinShell.Core.Ssh;
 
 namespace WinShell.App.Features.Ssh;
 
-public sealed partial class SshSessionsPage : Page
+public sealed partial class SshSessionsPage
 {
     private readonly NativeDialogService _dialogs;
     private readonly HashSet<Task> _actions = [];
@@ -18,7 +18,7 @@ public sealed partial class SshSessionsPage : Page
     public SshSessionsPage(ISshSessionFactory factory, IKnownHostRepository knownHosts, NativeDialogService dialogs)
     {
         _dialogs = dialogs;
-        ViewModel = new(factory, knownHosts, ConfirmHostKeyAsync,
+        ViewModel = new SshWorkspaceViewModel(factory, knownHosts, ConfirmHostKeyAsync,
             SynchronizationContext.Current ?? throw new InvalidOperationException("SSH 页面必须在 UI 上下文中创建。"));
         InitializeComponent();
         DataContext = ViewModel;
@@ -42,15 +42,29 @@ public sealed partial class SshSessionsPage : Page
     });
     private async void SessionTabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
     {
-        if (args.Item is SshSessionViewModel tab) await RunActionAsync(async () =>
+        try
         {
-            var close = ViewModel.CloseTabAsync(tab);
-            UpdateEmptyState();
-            Feedback.Text = "正在关闭会话；协议阶段等待期间会话容量仍被保留。";
-            await close;
-            Feedback.Text = "SSH 会话已关闭。";
-            FocusSelectedTab();
-        });
+            if (args.Item is SshSessionViewModel tab)
+                await RunActionAsync(async () =>
+                {
+                    var close = ViewModel.CloseTabAsync(tab);
+                    UpdateEmptyState();
+                    Feedback.Text = "正在关闭会话；协议阶段等待期间会话容量仍被保留。";
+                    await close;
+                    Feedback.Text = "SSH 会话已关闭。";
+                    FocusSelectedTab();
+                });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 16)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "SSH 页面操作未能完成，请重试。";
+        }
     }
     private async Task RunActionAsync(Func<Task> action)
     {
@@ -92,7 +106,7 @@ public sealed partial class SshSessionsPage : Page
     }
     private void SessionTab_Loaded(object sender, RoutedEventArgs args)
     {
-        if (sender is not TabViewItem tab || tab.DataContext is not SshSessionViewModel session) return;
+        if (sender is not TabViewItem { DataContext: SshSessionViewModel session } tab) return;
         NameCloseButton(tab, $"关闭 SSH 会话：{session.Title}");
         if (ReferenceEquals(ViewModel.SelectedTab, session)) FocusSelectedTab();
     }
