@@ -2,14 +2,14 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace WinShell.App.Features.Mcp;
 
-public sealed class McpClientLaunchViewModel : ObservableObject
+public sealed partial class McpClientLaunchViewModel : ObservableObject
 {
-    private string _json = "";
-    private string _status = "";
-    private bool _isAvailable;
-    public string Json { get => _json; private set => SetProperty(ref _json, value); }
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
-    public bool IsAvailable { get => _isAvailable; private set => SetProperty(ref _isAvailable, value); }
+    [ObservableProperty]
+    public partial string Json { get; private set; } = "";
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "";
+    [ObservableProperty]
+    public partial bool IsAvailable { get; private set; }
 
     public void Reload(string applicationDirectory, string runtimeDirectory)
     {
