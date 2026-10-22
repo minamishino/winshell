@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using WinShell.Mcp.Transport;
 
 namespace WinShell.Mcp.Http;
@@ -12,6 +13,7 @@ internal static class HttpProcessLifetime
         await Console.Out.FlushAsync();
         Task? inputLifetime = null;
         Stream? input = null;
+        var failures = new List<Exception>();
         try
         {
             if (options.StdioLifetime)
@@ -21,23 +23,39 @@ internal static class HttpProcessLifetime
             }
             await host.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
         }
+        catch (Exception error) { failures.Add(error); }
         finally
         {
-            shutdown.Cancel();
-            if (inputLifetime is not null) await inputLifetime.ConfigureAwait(false);
-            if (input is not null) await input.DisposeAsync().ConfigureAwait(false);
-            await host.CloseAsync().ConfigureAwait(false);
+            // Every owned resource must be joined or released even if an earlier cleanup
+            // step fails. Keep the original failure first and report after all attempts.
+            try { shutdown.Cancel(); }
+            catch (Exception error) { failures.Add(error); }
+            try { if (inputLifetime is not null) await inputLifetime.ConfigureAwait(false); }
+            catch (Exception error) { failures.Add(error); }
+            try { if (input is not null) await input.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception error) { failures.Add(error); }
+            try { await host.CloseAsync().ConfigureAwait(false); }
+            catch (Exception error) { failures.Add(error); }
         }
+        if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1) throw new AggregateException(failures);
         await Console.Error.WriteLineAsync("MCP_HTTP_STOPPED");
     }
     private static async Task StopOnInputAsync(Stream input, CancellationTokenSource shutdown)
     {
+        Exception? readFailure = null;
         try
         {
             var buffer = new byte[1024];
             while (await input.ReadAsync(buffer, shutdown.Token).ConfigureAwait(false) != 0) { }
         }
         catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
-        finally { shutdown.Cancel(); }
+        catch (Exception error) { readFailure = error; }
+        try { shutdown.Cancel(); }
+        catch (Exception cleanupError) when (readFailure is not null)
+        {
+            throw new AggregateException(readFailure, cleanupError);
+        }
+        if (readFailure is not null) ExceptionDispatchInfo.Capture(readFailure).Throw();
     }
 }
