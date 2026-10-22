@@ -1,12 +1,19 @@
 <Page x:Class="WinShell.App.Features.Terminal.TerminalSessionsPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WinShell.App.Features.Terminal"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=vm:TerminalSessionsViewModel, IsDesignTimeCreatable=False}"
       xmlns:terminal="using:WinShell.App.Features.Terminal">
     <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="8">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <CommandBar x:Name="TerminalCommands" DefaultLabelPosition="Collapsed" HorizontalAlignment="Left" Background="Transparent" Opened="Popup_Opened" Closed="Popup_Closed" AutomationProperties.Name="终端操作">
             <AppBarButton Icon="AllApps" Label="其他会话" ToolTipService.ToolTip="其他会话" AutomationProperties.Name="其他终端会话">
                 <AppBarButton.Flyout>
+                    <!-- Used by the runtime UI checks through FindName("NewSessionFlyout"). -->
+                    <!-- ReSharper disable once UnusedMember.Local -->
                     <Flyout x:Name="NewSessionFlyout" Opened="Popup_Opened" Closed="Popup_Closed">
                         <StackPanel Spacing="16" MinWidth="240" MaxWidth="320">
                             <TextBlock Text="新建会话" Style="{StaticResource WinShellSectionTitleStyle}"/>
@@ -29,23 +36,25 @@
                 <AppBarButton Icon="Cancel" Label="关闭 / 取消" Click="Close_Click" AutomationProperties.Name="关闭或取消当前终端"/>
             </CommandBar.SecondaryCommands>
         </CommandBar>
+        <!-- Used by the runtime UI checks through FindName("SessionTabs"). -->
+        <!-- ReSharper disable once UnusedMember.Local -->
         <TabView x:Name="SessionTabs" Grid.Row="1" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
-            TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+            TabItemsSource="{Binding Path=Tabs}" SelectedItem="{Binding Path=SelectedTab, Mode=TwoWay}"
             TabCloseRequested="Tabs_CloseRequested" SelectionChanged="Tabs_SelectionChanged" AutomationProperties.Name="交互终端标签">
             <TabView.TabItemTemplate>
-                <DataTemplate x:DataType="terminal:TerminalTabViewModel"><TabViewItem Header="{Binding Title}" IsClosable="True" AutomationProperties.Name="{Binding Title}"/></DataTemplate>
+                <DataTemplate x:DataType="terminal:TerminalTabViewModel"><TabViewItem Header="{Binding Path=Title}" IsClosable="True" AutomationProperties.Name="{Binding Path=Title}"/></DataTemplate>
             </TabView.TabItemTemplate>
         </TabView>
         <Grid x:Name="TerminalHosts" Grid.Row="2" MinHeight="160" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <TextBlock x:Name="EmptyMessage" Text="新建终端" TextWrapping="Wrap" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
-        <ScrollViewer Grid.Row="2" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding SelectedTab.IsClosing}">
-            <TextBlock Text="{Binding SelectedTab.DiagnosticText}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
+        <ScrollViewer Grid.Row="2" MaxHeight="480" VerticalAlignment="Top" IsHitTestVisible="{Binding Path=SelectedTab.IsClosing, FallbackValue=False}">
+            <TextBlock Text="{Binding Path=SelectedTab.DiagnosticText, FallbackValue=''}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Cascadia Mono" AutomationProperties.Name="终端结束诊断，最多保留最后16KiB输出"/>
         </ScrollViewer>
         <StackPanel Grid.Row="3" Spacing="4">
-            <TextBlock Text="{Binding SelectedTab.TargetDescription}" Visibility="{Binding SelectedTab.TargetDescription, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellPageDescriptionStyle}" FontSize="12" IsTextSelectionEnabled="True"/>
-            <TextBlock Text="{Binding SelectedTab.Status}" Visibility="{Binding SelectedTab.Status, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
-            <TextBlock x:Name="Feedback" Visibility="{Binding Text, ElementName=Feedback, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
+            <TextBlock Text="{Binding Path=SelectedTab.TargetDescription, FallbackValue=''}" Visibility="{Binding Path=SelectedTab.TargetDescription, FallbackValue=Collapsed, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellPageDescriptionStyle}" FontSize="12" IsTextSelectionEnabled="True"/>
+            <TextBlock Text="{Binding Path=SelectedTab.Status, FallbackValue=''}" Visibility="{Binding Path=SelectedTab.Status, FallbackValue=Collapsed, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
+            <TextBlock x:Name="Feedback" Visibility="{Binding Path=Text, ElementName=Feedback, Converter={StaticResource WinShellTextVisibility}}" Style="{StaticResource WinShellStatusTextStyle}" FontSize="12"/>
         </StackPanel>
     </Grid>
 </Page>
