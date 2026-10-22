@@ -3,18 +3,23 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using System.Text.Json;
 namespace WinShell.App.Features.Mcp;
 // Dispatcher-affine. Owner's background notifications are marshalled by the native page.
-public sealed class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpHttpTokenStore tokens, McpHttpProcessOwner owner) : ObservableObject, IAsyncDisposable
+public sealed partial class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpHttpTokenStore tokens, McpHttpProcessOwner owner) : ObservableObject, IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions ConfigurationJsonOptions = new() { WriteIndented = true };
     private readonly CancellationTokenSource _lifetime = new();
-    private McpServiceSettings _settings = new();
-    private bool _busy, _closing, _loaded, _hasToken, _hasSaveFailure;
-    private string _status = "尚未读取服务设置。";
+
+    private bool _busy, _closing, _loaded;
+
     private Task _pending = Task.CompletedTask;
     private Task? _stop, _close;
-    public McpServiceSettings Settings { get => _settings; private set => SetProperty(ref _settings, value); }
-    public bool HasToken { get => _hasToken; private set => SetProperty(ref _hasToken, value); }
-    public bool HasSaveFailure { get => _hasSaveFailure; private set => SetProperty(ref _hasSaveFailure, value); }
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
+    [ObservableProperty]
+    public partial McpServiceSettings Settings { get; private set; } = new();
+    [ObservableProperty]
+    public partial bool HasToken { get; private set; }
+    [ObservableProperty]
+    public partial bool HasSaveFailure { get; private set; }
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "尚未读取服务设置。";
     public McpClientLaunchViewModel ClientLaunch { get; } = new();
     public void ReportActionFailure() => Status = "服务操作或剪贴板写入未能完成，请重试。";
     public McpHttpProcessSnapshot Process => owner.Snapshot;
@@ -26,7 +31,7 @@ public sealed class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpH
     public bool CanRotate => CanEdit && HasToken;
     public bool CanCopyToken => !_busy && !_closing && HasToken;
     public bool CanCopyConfiguration => !_busy && !_closing && (Settings.Transport == McpServiceTransport.Stdio ? ClientLaunch.IsAvailable : HasToken);
-    public bool CanCopySse => CanCopyConfiguration && Settings.Transport == McpServiceTransport.StreamableHttp && Settings.EnableLegacySse;
+    public bool CanCopySse => CanCopyConfiguration && Settings is { Transport: McpServiceTransport.StreamableHttp, EnableLegacySse: true };
     public string EndpointDescription => Settings.Transport == McpServiceTransport.Stdio
         ? "stdio 由 AI 客户端按需启动；此窗口不持续运行该服务。"
         : Process.Endpoint is { } endpoint ? "本窗口服务已就绪：" + endpoint : "下次启动 / 配置示例：" + Settings.ConfiguredEndpoint;
@@ -81,8 +86,8 @@ public sealed class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpH
     public Task CopyConfigurationAsync(bool legacySse, Action<string> copy)
     {
         if (!CanCopyConfiguration || (legacySse && !CanCopySse)) return Task.CompletedTask;
-        if (Settings.Transport != McpServiceTransport.Stdio) return CopySecretAsync(copy, true, legacySse);
-        return RunAsync(_ => { copy(ClientLaunch.Json); Status = "已复制 stdio 配置示例。"; return Task.CompletedTask; }, mutate: false);
+        return Settings.Transport != McpServiceTransport.Stdio ? CopySecretAsync(copy, true, legacySse)
+            : RunAsync(_ => { copy(ClientLaunch.Json); Status = "已复制 stdio 配置示例。"; return Task.CompletedTask; }, mutate: false);
     }
     private Task CopySecretAsync(Action<string> copy, bool configuration, bool legacySse) => RunAsync(async token =>
     {
@@ -96,7 +101,7 @@ public sealed class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpH
             if (configuration)
             {
                 var endpoint = Process.Endpoint ?? Settings.ConfiguredEndpoint;
-                var json = JsonSerializer.Serialize(new { mcpServers = new { winshell = new { url = endpoint + (legacySse ? "/sse" : ""), headers = new { Authorization = "Bearer " + bearer } } } }, new JsonSerializerOptions { WriteIndented = true });
+                var json = JsonSerializer.Serialize(new { mcpServers = new { winshell = new { url = endpoint + (legacySse ? "/sse" : ""), headers = new { Authorization = "Bearer " + bearer } } } }, ConfigurationJsonOptions);
                 copy(json);
             }
             else copy(bearer);
@@ -144,9 +149,9 @@ public sealed class McpServiceViewModel(McpServiceSettingsStore store, LocalMcpH
     };
     public ValueTask DisposeAsync()
     {
-        if (_close is not null) return new(_close);
+        if (_close is not null) return new ValueTask(_close);
         _closing = true; _lifetime.Cancel(); RefreshOwner();
-        return new(_close = CloseAsync());
+        return new ValueTask(_close = CloseAsync());
     }
     private async Task CloseAsync()
     {
