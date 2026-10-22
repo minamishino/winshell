@@ -21,7 +21,9 @@ public sealed partial class TunnelsPage
     public TunnelsPage(ITunnelFactory factory,IKnownHostRepository knownHosts,ITunnelDefinitionRepository definitions,IConnectionProfileRepository profiles,NativeDialogService dialogs)
     {
         _profiles=profiles; _dialogs=dialogs; ViewModel=new TunnelsViewModel(factory,knownHosts,definitions,ConfirmAsync);
-        InitializeComponent(); DataContext=ViewModel;
+        InitializeComponent();
+        Definitions.ContainerContentChanging += Definitions_ContainerContentChanging;
+        DataContext=ViewModel;
         _timer=DispatcherQueue.CreateTimer(); _timer.Interval=TimeSpan.FromMilliseconds(100); _timer.Tick+=Tick; _timer.Start();
     }
     private void Tick(DispatcherQueueTimer sender,object args)=>ViewModel.Publish();
@@ -42,9 +44,7 @@ public sealed partial class TunnelsPage
     {
         SaveButton?.IsEnabled = Profiles.SelectedItem is ConnectionProfile;
     }
-    // WinUI's generated XAML hookup binds this handler through an instance reference.
-    // ReSharper disable once MemberCanBeMadeStatic.Local
-    private void Definitions_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    private static void Definitions_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         AutomationProperties.SetName(args.ItemContainer,
             args is { InRecycleQueue: false, Item: TunnelRowViewModel row } ? row.Name : string.Empty);
