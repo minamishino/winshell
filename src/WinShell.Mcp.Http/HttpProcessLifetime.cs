@@ -28,7 +28,7 @@ internal static class HttpProcessLifetime
         {
             // Every owned resource must be joined or released even if an earlier cleanup
             // step fails. Keep the original failure first and report after all attempts.
-            try { shutdown.Cancel(); }
+            try { await shutdown.CancelAsync().ConfigureAwait(false); }
             catch (Exception error) { failures.Add(error); }
             try { if (inputLifetime is not null) await inputLifetime.ConfigureAwait(false); }
             catch (Exception error) { failures.Add(error); }
@@ -37,8 +37,11 @@ internal static class HttpProcessLifetime
             try { await host.CloseAsync().ConfigureAwait(false); }
             catch (Exception error) { failures.Add(error); }
         }
-        if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
-        if (failures.Count > 1) throw new AggregateException(failures);
+        switch (failures.Count)
+        {
+            case 1: ExceptionDispatchInfo.Capture(failures[0]).Throw(); break;
+            case > 1: throw new AggregateException(failures);
+        }
         await Console.Error.WriteLineAsync("MCP_HTTP_STOPPED");
     }
     private static async Task StopOnInputAsync(Stream input, CancellationTokenSource shutdown)
@@ -51,7 +54,7 @@ internal static class HttpProcessLifetime
         }
         catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
         catch (Exception error) { readFailure = error; }
-        try { shutdown.Cancel(); }
+        try { await shutdown.CancelAsync().ConfigureAwait(false); }
         catch (Exception cleanupError) when (readFailure is not null)
         {
             throw new AggregateException(readFailure, cleanupError);
