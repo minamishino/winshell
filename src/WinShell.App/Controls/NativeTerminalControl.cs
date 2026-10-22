@@ -9,23 +9,21 @@ using WinShell.Core.Settings;
 
 namespace WinShell.App.Controls;
 
-public sealed class NativeTerminalControl : UserControl
+public sealed partial class NativeTerminalControl : UserControl
 {
     private readonly NativeTerminalPresenter _presenter = new();
-    private readonly RendererClient _renderer;
     private Task? _close;
-    private Task? _start, _output, _failureObserver;
+    private Task? _start, _failureObserver;
     private readonly CancellationTokenSource _stop = new();
     private IShellSession? _session;
     private bool _running;
     private bool _rendererReady, _closed;
     private Exception? _failure;
-    public Exception? Failure => _failure ?? _renderer.Failure;
+    public Exception? Failure => _failure ?? Renderer.Failure;
     public event EventHandler<Exception>? Faulted;
     private Task? _presentation;
     private PresentationState? _pendingPresentation;
     private readonly ScrollBar _scrollBar = new() { Width = 14, Orientation = Orientation.Vertical, IsTabStop = false };
-    private (int Top, int Height, int Total)? _pendingScrollState;
     private int _scrollDispatchPending;
     private int? _pendingScrollPosition;
     private Task? _scroll;
@@ -38,38 +36,36 @@ public sealed class NativeTerminalControl : UserControl
     private long _backgroundColorToken, _backgroundOpacityToken, _foregroundColorToken, _foregroundOpacityToken;
     private readonly long _backgroundToken, _foregroundToken;
     private readonly record struct PresentationState(int Width, int Height, bool Visible, bool Focused, int Dpi, ElementTheme Theme, uint BackgroundColor, uint ForegroundColor, bool BackendRunning, TerminalPreferences Preferences);
-    public Task OutputCompletion => _output ?? Task.CompletedTask;
+    public Task OutputCompletion { get; private set; } = Task.CompletedTask;
     public NativeTerminalControl(RendererJob job, string rendererExecutable)
     {
-        _renderer = new(job, rendererExecutable);
+        Renderer = new RendererClient(job, rendererExecutable);
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition());
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_scrollBar, 1);
         layout.Children.Add(_presenter); layout.Children.Add(_scrollBar);
         Content = layout;
-        Binding SurfaceBinding() => new() { Source = this, Path = new PropertyPath(nameof(Background)) };
-        layout.SetBinding(Grid.BackgroundProperty, SurfaceBinding());
-        _presenter.SetBinding(Grid.BackgroundProperty, SurfaceBinding());
+        layout.SetBinding(Panel.BackgroundProperty, SurfaceBinding());
+        _presenter.SetBinding(Panel.BackgroundProperty, SurfaceBinding());
         _scrollBar.SetBinding(BackgroundProperty, SurfaceBinding());
         _backgroundToken = RegisterPropertyChangedCallback(BackgroundProperty, (_, _) => RefreshThemeBrushes());
         _foregroundToken = RegisterPropertyChangedCallback(ForegroundProperty, (_, _) => RefreshThemeBrushes());
         RefreshThemeBrushes();
-        _renderer.ScrollChanged += (_, state) =>
+        (int Top, int Height, int Total)? pendingScrollState;
+        Renderer.ScrollChanged += (_, state) =>
         {
-            lock (_scrollBar) _pendingScrollState = state;
+            lock (_scrollBar) pendingScrollState = state;
             if (Interlocked.Exchange(ref _scrollDispatchPending, 1) != 0) return;
             if (!DispatcherQueue.TryEnqueue(() =>
             {
                 Interlocked.Exchange(ref _scrollDispatchPending, 0);
                 (int Top, int Height, int Total)? update;
-                lock (_scrollBar) { update = _pendingScrollState; _pendingScrollState = null; }
-                if (update is { } value && !_stop.IsCancellationRequested)
-                {
-                    _scrollBar.Maximum = Math.Max(0, value.Total - value.Height);
-                    _scrollBar.ViewportSize = Math.Max(1, value.Height);
-                    _scrollBar.Value = Math.Clamp(value.Top, 0, _scrollBar.Maximum);
-                }
+                lock (_scrollBar) { update = pendingScrollState; pendingScrollState = null; }
+                if (update is not { } value || _stop.IsCancellationRequested) return;
+                _scrollBar.Maximum = Math.Max(0, value.Total - value.Height);
+                _scrollBar.ViewportSize = Math.Max(1, value.Height);
+                _scrollBar.Value = Math.Clamp(value.Top, 0, _scrollBar.Maximum);
             })) throw new InvalidOperationException("XAML dispatcher rejected scroll state.");
         };
         _scrollBar.Scroll += (_, args) =>
@@ -91,8 +87,11 @@ public sealed class NativeTerminalControl : UserControl
         };
         LayoutUpdated += (_, _) => { if (!_closed && _rendererReady && !_stop.IsCancellationRequested) _presenter.UpdateBounds(); };
         ActualThemeChanged += (_, _) => QueuePresentation();
+        return;
+
+        Binding SurfaceBinding() => new() { Source = this, Path = new PropertyPath(nameof(Background)) };
     }
-    public RendererClient Renderer => _renderer;
+    public RendererClient Renderer { get; }
     public nint HostWindow => _presenter.Window;
     public void ApplyPreferences(TerminalPreferences preferences)
     {
@@ -111,7 +110,7 @@ public sealed class NativeTerminalControl : UserControl
         _presenter.SetVisible(visible && IsLoaded && Visibility == Visibility.Visible, allowInput);
         QueuePresentation(visible);
     }
-    public Task<string> CopySelectionAsync(CancellationToken token) => _renderer.CopySelectionAsync(token);
+    public Task<string> CopySelectionAsync(CancellationToken token) => Renderer.CopySelectionAsync(token);
     public async Task PasteAsync(string text, CancellationToken token)
     {
         var encoding = new System.Text.UTF8Encoding(false, true);
@@ -126,7 +125,7 @@ public sealed class NativeTerminalControl : UserControl
             while (_pendingScrollPosition is { } top && !_stop.IsCancellationRequested)
             {
                 _pendingScrollPosition = null;
-                await _renderer.ScrollAsync(top, _stop.Token);
+                await Renderer.ScrollAsync(top, _stop.Token);
             }
         }
         catch (Exception error) when (_stop.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException) { }
@@ -136,7 +135,7 @@ public sealed class NativeTerminalControl : UserControl
     {
         if (_start is not null || _close is not null) throw new InvalidOperationException("Terminal instance can only start once.");
         _session = session;
-        _renderer.InputConsumer = session.WriteInputAsync;
+        Renderer.InputConsumer = session.WriteInputAsync;
         _start = StartCoreAsync(cancellationToken);
         return ObserveStartAsync(_start);
     }
@@ -159,17 +158,17 @@ public sealed class NativeTerminalControl : UserControl
         await StartRendererAsync(linked.Token);
         _failureObserver = ObserveRendererFailureAsync();
         await _session!.StartAsync(linked.Token);
-        await _renderer.SetFocusedAsync(false, linked.Token);
+        await Renderer.SetFocusedAsync(false, linked.Token);
         _running = true;
         QueuePresentation();
-        _output = CopyOutputAsync();
+        OutputCompletion = CopyOutputAsync();
     }
     private async Task CopyOutputAsync()
     {
         try
         {
-            await _session!.Output.CopyToAsync(new RendererDestination(_renderer), _stop.Token);
-            await _renderer.CompleteOutputAsync(_stop.Token);
+            await _session!.Output.CopyToAsync(new RendererDestination(Renderer), _stop.Token);
+            await Renderer.CompleteOutputAsync(_stop.Token);
         }
         catch (Exception error)
         {
@@ -183,7 +182,8 @@ public sealed class NativeTerminalControl : UserControl
         try
         {
             var scale = (XamlRoot ?? _subscribedRoot)?.RasterizationScale ?? 1;
-            if (Background is not SolidColorBrush background || background.Color.A != 255 || background.Opacity != 1 || Foreground is not SolidColorBrush foreground)
+            // Full opacity is an exact brush invariant, not a floating-point approximation.
+            if (Background is not SolidColorBrush { Color.A: 255, Opacity: 1 } background || Foreground is not SolidColorBrush foreground)
                 throw new InvalidOperationException("终端需要实心不透明主题背景和实心文字画刷。");
             var backgroundColor = background.Color;
             var foregroundColor = foreground.Color;
@@ -192,7 +192,7 @@ public sealed class NativeTerminalControl : UserControl
             var nativeBackground = (uint)(backgroundColor.R | backgroundColor.G << 8 | backgroundColor.B << 16);
             var nativeForeground = (uint)(Blend(foregroundColor.R, backgroundColor.R) | Blend(foregroundColor.G, backgroundColor.G) << 8 | Blend(foregroundColor.B, backgroundColor.B) << 16);
             var state = new PresentationState((int)Math.Max(16, Math.Round(_presenter.ActualWidth * scale)), (int)Math.Max(32, Math.Round(_presenter.ActualHeight * scale)),
-                (visible ?? Visibility == Microsoft.UI.Xaml.Visibility.Visible) && !_presentationSuppressed, !_inputSuppressed && FocusState != FocusState.Unfocused,
+                (visible ?? Visibility == Visibility.Visible) && !_presentationSuppressed, !_inputSuppressed && FocusState != FocusState.Unfocused,
                 checked((int)Math.Round(96 * scale)), ActualTheme, nativeBackground, nativeForeground, _running, _preferences);
             if (_lastPresentation == state) return;
             _lastPresentation = state;
@@ -217,11 +217,9 @@ public sealed class NativeTerminalControl : UserControl
             observedBrush.UnregisterPropertyChangedCallback(Brush.OpacityProperty, opacityToken);
         }
         observedBrush = brush;
-        if (brush is not null)
-        {
-            colorToken = brush.RegisterPropertyChangedCallback(SolidColorBrush.ColorProperty, (_, _) => QueuePresentation());
-            opacityToken = brush.RegisterPropertyChangedCallback(Brush.OpacityProperty, (_, _) => QueuePresentation());
-        }
+        if (brush is null) return;
+        colorToken = brush.RegisterPropertyChangedCallback(SolidColorBrush.ColorProperty, (_, _) => QueuePresentation());
+        opacityToken = brush.RegisterPropertyChangedCallback(Brush.OpacityProperty, (_, _) => QueuePresentation());
     }
     private async Task ApplyPresentationAsync()
     {
@@ -231,17 +229,17 @@ public sealed class NativeTerminalControl : UserControl
             {
                 _pendingPresentation = null;
                 _presenter.UpdateBounds();
-                await _renderer.SetThemeAsync(state.Theme == ElementTheme.Dark, state.Dpi, state.BackgroundColor, state.ForegroundColor, state.Preferences, _stop.Token);
+                await Renderer.SetThemeAsync(state.Theme == ElementTheme.Dark, state.Dpi, state.BackgroundColor, state.ForegroundColor, state.Preferences, _stop.Token);
                 if (!state.BackendRunning)
                 {
-                    await _renderer.SetVisibleAsync(state.Visible, _stop.Token);
+                    await Renderer.SetVisibleAsync(state.Visible, _stop.Token);
                     continue;
                 }
-                var dimensions = await _renderer.ResizeAsync(state.Width, state.Height, _stop.Token);
+                var dimensions = await Renderer.ResizeAsync(state.Width, state.Height, _stop.Token);
                 await _session!.ResizeAsync(dimensions.Columns, dimensions.Rows, _stop.Token);
-                await _renderer.SetVisibleAsync(state.Visible, _stop.Token);
+                await Renderer.SetVisibleAsync(state.Visible, _stop.Token);
                 // Once focus enters the child, only its own WM_KILLFOCUS may clear native focus.
-                if (state.Visible && state.Focused && !_inputSuppressed) await _renderer.SetFocusedAsync(true, _stop.Token);
+                if (state is { Visible: true, Focused: true } && !_inputSuppressed) await Renderer.SetFocusedAsync(true, _stop.Token);
             }
         }
         catch (Exception error) when (_stop.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException) { }
@@ -252,7 +250,7 @@ public sealed class NativeTerminalControl : UserControl
         try
         {
             // Independent of pending backend Start/output creation, and still active after normal EOF.
-            var failure = await _renderer.FailureCompletion.WaitAsync(_stop.Token);
+            var failure = await Renderer.FailureCompletion.WaitAsync(_stop.Token);
             HandleFailure(failure);
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
@@ -270,7 +268,7 @@ public sealed class NativeTerminalControl : UserControl
     {
         _presenter.CreateHost();
         _presenter.SetVisible(!_presentationSuppressed && IsLoaded && Visibility == Visibility.Visible, !_inputSuppressed);
-        await _renderer.StartAsync(_presenter.Window, cancellationToken);
+        await Renderer.StartAsync(_presenter.Window, cancellationToken);
         _rendererReady = true;
         QueuePresentation();
         if (_presentation is { } presentation) await presentation.WaitAsync(cancellationToken);
@@ -296,12 +294,17 @@ public sealed class NativeTerminalControl : UserControl
     {
         _closed = true;
         _rendererReady = false;
-        _stop.Cancel();
+        var failures = new List<Exception>();
+        try { await _stop.CancelAsync(); }
+        catch (Exception error)
+        {
+            failures.Add(error);
+            _failure ??= error;
+        }
         UnregisterPropertyChangedCallback(BackgroundProperty, _backgroundToken);
         UnregisterPropertyChangedCallback(ForegroundProperty, _foregroundToken);
         ObserveBrush(null, ref _backgroundBrush, ref _backgroundColorToken, ref _backgroundOpacityToken);
         ObserveBrush(null, ref _foregroundBrush, ref _foregroundColorToken, ref _foregroundOpacityToken);
-        var failures = new List<Exception>();
         async Task Join(Task task) { try { await task; } catch (OperationCanceledException) { } catch (Exception error) { failures.Add(error); } }
         // Backend Close cancels a pending Start and keeps its sole ConPTY drainer alive.
         if (_session is not null)
@@ -309,8 +312,8 @@ public sealed class NativeTerminalControl : UserControl
             await Join(_session.CloseAsync(CancellationToken.None).AsTask());
         }
         if (_start is not null) await Join(_start);
-        await Join(_renderer.CloseAsync(CancellationToken.None));
-        if (_output is not null) await Join(_output);
+        await Join(Renderer.CloseAsync(CancellationToken.None));
+        await Join(OutputCompletion);
         if (_presentation is not null) await Join(_presentation);
         if (_scroll is not null) await Join(_scroll);
         if (_failureObserver is not null) await Join(_failureObserver);
@@ -321,7 +324,7 @@ public sealed class NativeTerminalControl : UserControl
         _stop.Dispose();
         if (failures.Count != 0) throw new AggregateException(failures);
     }
-    private sealed class RendererDestination(RendererClient renderer) : Stream
+    private sealed partial class RendererDestination(RendererClient renderer) : Stream
     {
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default) => new(renderer.ConsumeOutputAsync(buffer, token));
         public override bool CanRead => false; public override bool CanWrite => true; public override bool CanSeek => false;
