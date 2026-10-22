@@ -14,10 +14,9 @@ public sealed class ConnectionAdmissionBudget
         await _handshakes.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new Lease(_handshakes);
     }
-    private static IDisposable Admit(SemaphoreSlim slots, string message)
+    private static Lease Admit(SemaphoreSlim slots, string message)
     {
-        if (!slots.Wait(0)) throw new SshConnectionException(SshFailureKind.Capacity, message);
-        return new Lease(slots);
+        return slots.Wait(0) ? new Lease(slots) : throw new SshConnectionException(SshFailureKind.Capacity, message);
     }
     private sealed class Lease(SemaphoreSlim semaphore) : IDisposable
     {
