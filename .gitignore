@@ -15,6 +15,9 @@ TestResults/
 .tools/
 .tmp/
 
+# Local agent state, downloaded fixtures, and generated test credentials
+/.superpowers/
+
 # Local credentials, connection data, and signing material
 .env
 .env.*
