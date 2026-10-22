@@ -19,7 +19,7 @@ public sealed record McpGrant(Guid ProfileId, string ProfileBinding, string Host
         bool dockerRead = false, bool dockerControl = false, bool dockerExec = false)
     {
         ArgumentNullException.ThrowIfNull(key);
-        return new(profile.Id, BindProfile(profile), BindKey(key), listProfiles, runScript, dockerRead, dockerControl, dockerExec);
+        return new McpGrant(profile.Id, BindProfile(profile), BindKey(key), listProfiles, runScript, dockerRead, dockerControl, dockerExec);
     }
     public bool Allows(ConnectionProfile profile, SshHostKey key, string scope) =>
         ProfileId == profile.Id && profile.Protocol == ConnectionProtocol.Ssh && ConnectionProfileValidator.Validate(profile).Count == 0 && ProfileBinding == BindProfile(profile) && HostKeyBinding == BindKey(key) &&
