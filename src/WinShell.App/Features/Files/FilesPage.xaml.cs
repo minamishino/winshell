@@ -1,7 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Windows.Storage.Pickers;
 using VirtualKey = Windows.System.VirtualKey;
@@ -10,7 +9,7 @@ using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Files;
 
-public sealed partial class FilesPage : Page
+public sealed partial class FilesPage
 {
     private readonly IConnectionProfileRepository _profiles;
     private readonly NativeDialogService _dialogs;
@@ -27,7 +26,7 @@ public sealed partial class FilesPage : Page
     public FilesPage(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts, IConnectionProfileRepository profiles, NativeDialogService dialogs)
     {
         _profiles = profiles; _dialogs = dialogs;
-        ViewModel = new(factory, knownHosts, ConfirmAsync, ConfirmPlaintextAsync);
+        ViewModel = new FilesViewModel(factory, knownHosts, ConfirmAsync, ConfirmPlaintextAsync);
         InitializeComponent(); DataContext = ViewModel;
         _timer = DispatcherQueue.CreateTimer(); _timer.Interval = TimeSpan.FromMilliseconds(100); _timer.Tick += Tick;
         _timer.Start();
@@ -68,40 +67,169 @@ public sealed partial class FilesPage : Page
             finally { _loadingProfiles = false; completion.SetResult(); }
         }
     }
-    private async void Reload_Click(object sender, RoutedEventArgs args) => await LoadProfilesAsync();
-    private async void Connect_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
-    { if (Profiles.SelectedItem is ConnectionProfile profile) await ViewModel.ConnectAsync(profile); else Feedback.Text = "请选择已保存的文件连接配置。"; });
-    private async void Disconnect_Click(object sender, RoutedEventArgs args) => await RunAsync(ViewModel.DisconnectAsync);
-    private async void Go_Click(object sender, RoutedEventArgs args) => await RunAsync(() => ViewModel.BrowseAsync(ViewModel.Path));
-    private async void Up_Click(object sender, RoutedEventArgs args) => await RunAsync(ViewModel.UpAsync);
-    private async void Refresh_Click(object sender, RoutedEventArgs args) => await RunAsync(ViewModel.RefreshAsync);
+    private async void Reload_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await LoadProfilesAsync();
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Connect_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(async () =>
+            {
+                if (Profiles.SelectedItem is ConnectionProfile profile)
+                    await ViewModel.ConnectAsync(profile);
+                else
+                    Feedback.Text = "请选择已保存的文件连接配置。";
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Disconnect_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(ViewModel.DisconnectAsync);
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Go_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(() => ViewModel.BrowseAsync(ViewModel.Path));
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Up_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(ViewModel.UpAsync);
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Refresh_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(ViewModel.RefreshAsync);
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
     private void Cancel_Click(object sender, RoutedEventArgs args) => ViewModel.Cancel();
     private async void Path_KeyDown(object sender, KeyRoutedEventArgs args)
-    { if (args.Key == VirtualKey.Enter) { args.Handled = true; await RunAsync(() => ViewModel.BrowseAsync(ViewModel.Path)); } }
+    {
+        try
+        {
+            if (args.Key != VirtualKey.Enter) return;
+            args.Handled = true;
+            await RunAsync(() => ViewModel.BrowseAsync(ViewModel.Path));
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
     private async void Entries_KeyDown(object sender, KeyRoutedEventArgs args)
-    { if (args.Key == VirtualKey.Enter) { args.Handled = true; await OpenSelectedAsync(); } }
-    private async void Entries_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await OpenSelectedAsync();
+    {
+        try
+        {
+            if (args.Key != VirtualKey.Enter) return;
+            args.Handled = true;
+            await OpenSelectedAsync();
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Entries_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
+    {
+        try
+        {
+            await OpenSelectedAsync();
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
     private Task OpenSelectedAsync() => RunAsync(async () =>
     { if (Entries.SelectedItem is RemoteFileEntry { IsDirectory: true } entry) await ViewModel.BrowseAsync(entry.FullPath); else Feedback.Text = "请选择目录。"; });
-    private async void Download_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
+    private async void Download_Click(object sender, RoutedEventArgs args)
     {
-        if (Entries.SelectedItem is not RemoteFileEntry { IsRegularFile: true } entry) { Feedback.Text = "请选择普通文件。"; return; }
-        // Windows App SDK 2.x returns a path without creating a placeholder file.
-        // Never feed an untrusted remote filename into a Windows path or picker suggestion.
-        var picker = new FileSavePicker(_windowId) { SuggestedFileName = "download", ShowOverwritePrompt = false, CommitButtonText = "选择下载路径" };
-        string? selectedPath;
-        selectedPath = (await picker.PickSaveFileAsync().AsTask(_stop.Token))?.Path;
-        _stop.Token.ThrowIfCancellationRequested();
-        if (selectedPath is not null) await ViewModel.DownloadAsync(entry, selectedPath);
-    });
-    private async void Upload_Click(object sender, RoutedEventArgs args) => await RunAsync(async () =>
+        try
+        {
+            await RunAsync(async () =>
+            {
+                if (Entries.SelectedItem is not RemoteFileEntry { IsRegularFile: true } entry)
+                {
+                    Feedback.Text = "请选择普通文件。";
+                    return;
+                }
+
+                // Windows App SDK 2.x returns a path without creating a placeholder file.
+                // Never feed an untrusted remote filename into a Windows path or picker suggestion.
+                var picker = new FileSavePicker(_windowId)
+                {
+                    SuggestedFileName = "download",
+                    ShowOverwritePrompt = false,
+                    CommitButtonText = "选择下载路径"
+                };
+                string? selectedPath;
+                selectedPath = (await picker.PickSaveFileAsync().AsTask(_stop.Token))?.Path;
+                _stop.Token.ThrowIfCancellationRequested();
+                if (selectedPath is not null)
+                    await ViewModel.DownloadAsync(entry, selectedPath);
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
+    private async void Upload_Click(object sender, RoutedEventArgs args)
     {
-        var picker = new FileOpenPicker(_windowId);
-        string? selectedPath;
-        selectedPath = (await picker.PickSingleFileAsync().AsTask(_stop.Token))?.Path;
-        _stop.Token.ThrowIfCancellationRequested();
-        if (selectedPath is not null) await ViewModel.UploadAsync(selectedPath, string.IsNullOrWhiteSpace(UploadName.Text) ? System.IO.Path.GetFileName(selectedPath) : UploadName.Text);
-    });
+        try
+        {
+            await RunAsync(async () =>
+            {
+                var picker = new FileOpenPicker(_windowId);
+                string? selectedPath;
+                selectedPath = (await picker.PickSingleFileAsync().AsTask(_stop.Token))?.Path;
+                _stop.Token.ThrowIfCancellationRequested();
+                if (selectedPath is not null)
+                    await ViewModel.UploadAsync(selectedPath, string.IsNullOrWhiteSpace(UploadName.Text) ? Path.GetFileName(selectedPath) : UploadName.Text);
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "文件页面操作未能完成，请重试。";
+        }
+    }
     public Task CloseProfileAsync(Guid profileId) => ViewModel.ConnectedProfileId == profileId ? CancelAndDisconnectAsync() : Task.CompletedTask;
     private async Task CancelAndDisconnectAsync() { ViewModel.Cancel(); await _action; if (!_closing) await RunAsync(ViewModel.DisconnectAsync); }
     private Task RunAsync(Func<Task> action)
@@ -132,13 +260,13 @@ public sealed partial class FilesPage : Page
     }
 }
 
-public sealed class DirectoryLabelConverter : Microsoft.UI.Xaml.Data.IValueConverter
+public sealed partial class DirectoryLabelConverter : Microsoft.UI.Xaml.Data.IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) => value is true ? "目录" : "文件 / 其他";
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
-public sealed class FileGlyphConverter : Microsoft.UI.Xaml.Data.IValueConverter
+public sealed partial class FileGlyphConverter : Microsoft.UI.Xaml.Data.IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) => value is true ? "\uE8B7" : "\uE8A5";
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
