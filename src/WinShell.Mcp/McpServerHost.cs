@@ -42,7 +42,7 @@ public sealed class McpServerHost : IAsyncDisposable
         _transport = new BoundedStdioTransport(input, output);
         var options = new McpServerOptions
         {
-            ServerInfo = new Implementation { Name = "WinShell", Version = "0.1.0" },
+            ServerInfo = new Implementation { Name = "WinShell", Version = typeof(McpServerHost).Assembly.GetName().Version!.ToString(3) },
             ProtocolVersion = "2025-11-25",
             InitializationTimeout = TimeSpan.FromSeconds(30),
             ScopeRequests = false,
