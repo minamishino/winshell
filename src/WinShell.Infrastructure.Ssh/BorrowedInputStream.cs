@@ -5,14 +5,13 @@ namespace WinShell.Infrastructure.Ssh;
 // only after the existing Shell worker copied it into its fixed 16KiB scratch.
 internal sealed class BorrowedInputStream : Stream
 {
-    private sealed class Block(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
+    private sealed class Block(ReadOnlyMemory<byte> bytes)
     {
         internal ReadOnlyMemory<byte> Bytes = bytes;
-        internal readonly CancellationToken CancellationToken = cancellationToken;
         internal CancellationTokenRegistration Cancellation;
         internal readonly TaskCompletionSource Copied = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<Block> _blocks = new(4);
     private TaskCompletionSource _changed = NewSignal();
     private bool _closed;
@@ -26,7 +25,7 @@ internal sealed class BorrowedInputStream : Stream
         {
             ObjectDisposedException.ThrowIf(_closed, this);
             if (_blocks.Count == 4) throw new InvalidOperationException("Input admission is full (four borrowed blocks).");
-            var block = new Block(bytes, cancellationToken); _blocks.Add(block);
+            var block = new Block(bytes); _blocks.Add(block);
             block.Cancellation = cancellationToken.Register(() =>
             {
                 lock (_gate)
@@ -37,7 +36,7 @@ internal sealed class BorrowedInputStream : Stream
                 }
             });
             var changed = _changed; _changed = NewSignal(); changed.TrySetResult();
-            return new(block.Copied.Task);
+            return new ValueTask(block.Copied.Task);
         }
     }
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -55,7 +54,8 @@ internal sealed class BorrowedInputStream : Stream
                     var block = _blocks[0];
                     var count = Math.Min(buffer.Length, block.Bytes.Length);
                     block.Bytes[..count].CopyTo(buffer); block.Bytes = block.Bytes[count..];
-                    if (block.Bytes.IsEmpty) { _blocks.RemoveAt(0); block.Cancellation.Unregister(); block.Copied.TrySetResult(); }
+                    if (!block.Bytes.IsEmpty) return count;
+                    _blocks.RemoveAt(0); block.Cancellation.Unregister(); block.Copied.TrySetResult();
                     return count;
                 }
                 changed = _changed.Task;
