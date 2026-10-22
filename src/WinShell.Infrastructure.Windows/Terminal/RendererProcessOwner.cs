@@ -7,15 +7,16 @@ using Microsoft.Win32.SafeHandles;
 namespace WinShell.Infrastructure.Windows.Terminal;
 
 // The Job slot covers suspended startup through actual process/pipe completion.
-public sealed class RendererProcessOwner : IAsyncDisposable
+public sealed partial class RendererProcessOwner : IAsyncDisposable
 {
     private readonly RendererJob _job;
     private SafeProcessHandle? _process;
     private Task? _close;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
+    private AnonymousPipeServerStream? _input, _output;
     private RendererProcessOwner(RendererJob job) { _job = job; }
-    public AnonymousPipeServerStream Input { get; private set; } = null!;
-    public AnonymousPipeServerStream Output { get; private set; } = null!;
+    public AnonymousPipeServerStream Input => _input ?? throw new InvalidOperationException("Renderer input has not been created.");
+    public AnonymousPipeServerStream Output => _output ?? throw new InvalidOperationException("Renderer output has not been created.");
     public Task<int> Completion { get; private set; } = Task.FromResult(-1);
     public int ProcessId { get; private set; }
     public bool WasTerminated { get; private set; }
@@ -25,14 +26,14 @@ public sealed class RendererProcessOwner : IAsyncDisposable
         {
             var counters = new MemoryCounters { Size = (uint)Marshal.SizeOf<MemoryCounters>() };
             if (_process is null || !GetProcessMemoryInfo(_process, ref counters, counters.Size)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            return (ulong)counters.PrivateUsage;
+            return counters.PrivateUsage;
         }
     }
     public static async Task<RendererProcessOwner> StartAsync(RendererJob job, string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
-        => await StartCoreAsync(job, executable, arguments, cancellationToken, null).ConfigureAwait(false);
-    internal static Task<RendererProcessOwner> StartObservedAsync(RendererJob job, string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken, Action<SafeProcessHandle> suspendedProcessObserved)
-        => StartCoreAsync(job, executable, arguments, cancellationToken, suspendedProcessObserved);
-    private static async Task<RendererProcessOwner> StartCoreAsync(RendererJob job, string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken, Action<SafeProcessHandle>? suspendedProcessObserved)
+        => await StartCoreAsync(job, executable, arguments, null, cancellationToken).ConfigureAwait(false);
+    internal static Task<RendererProcessOwner> StartObservedAsync(RendererJob job, string executable, IReadOnlyList<string> arguments, Action<SafeProcessHandle> suspendedProcessObserved, CancellationToken cancellationToken)
+        => StartCoreAsync(job, executable, arguments, suspendedProcessObserved, cancellationToken);
+    private static async Task<RendererProcessOwner> StartCoreAsync(RendererJob job, string executable, IReadOnlyList<string> arguments, Action<SafeProcessHandle>? suspendedProcessObserved, CancellationToken cancellationToken)
     {
         var command = WindowsArguments.Build(executable, arguments);
         cancellationToken.ThrowIfCancellationRequested();
@@ -40,9 +41,9 @@ public sealed class RendererProcessOwner : IAsyncDisposable
         var owner = new RendererProcessOwner(job);
         try
         {
-            owner.Input = new(PipeDirection.Out, HandleInheritability.Inheritable);
-            owner.Output = new(PipeDirection.In, HandleInheritability.Inheritable);
-            owner.CreateSuspended(executable, command, cancellationToken, suspendedProcessObserved);
+            owner._input = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
+            owner._output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+            owner.CreateSuspended(executable, command, suspendedProcessObserved, cancellationToken);
             return owner;
         }
         catch (Exception initial)
@@ -52,7 +53,7 @@ public sealed class RendererProcessOwner : IAsyncDisposable
             throw;
         }
     }
-    private void CreateSuspended(string executable, StringBuilder command, CancellationToken cancellationToken, Action<SafeProcessHandle>? suspendedProcessObserved)
+    private void CreateSuspended(string executable, StringBuilder command, Action<SafeProcessHandle>? suspendedProcessObserved, CancellationToken cancellationToken)
     {
         nuint bytes = 0;
         InitializeProcThreadAttributeList(0, 1, 0, ref bytes);
@@ -74,10 +75,10 @@ public sealed class RendererProcessOwner : IAsyncDisposable
             ProcessId = checked((int)info.ProcessId);
             Completion = Task.Run(() =>
             {
-                if (WaitForSingleObject(_process, uint.MaxValue) != 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-                if (!GetExitCodeProcess(_process, out var code)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (WaitForSingleObject(_process, uint.MaxValue) != 0 || !GetExitCodeProcess(_process, out var code))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
                 return unchecked((int)code);
-            });
+            }, CancellationToken.None);
             suspendedProcessObserved?.Invoke(_process);
             _job.Assign(_process);
             cancellationToken.ThrowIfCancellationRequested();
@@ -101,7 +102,7 @@ public sealed class RendererProcessOwner : IAsyncDisposable
             WasTerminated = true;
         }
     }
-    public ValueTask DisposeAsync() { lock (_gate) return new(_close ??= CloseAsync()); }
+    public ValueTask DisposeAsync() { lock (_gate) return new ValueTask(_close ??= CloseAsync()); }
     private async Task CloseAsync()
     {
         try
@@ -111,7 +112,10 @@ public sealed class RendererProcessOwner : IAsyncDisposable
         }
         finally
         {
-            Input?.Dispose(); Output?.Dispose(); _process?.Dispose(); _job.Release();
+            if (_input is not null) await _input.DisposeAsync().ConfigureAwait(false);
+            if (_output is not null) await _output.DisposeAsync().ConfigureAwait(false);
+            _process?.Dispose();
+            _job.Release();
         }
     }
     [StructLayout(LayoutKind.Sequential)] private struct StartupInfo
@@ -128,15 +132,21 @@ public sealed class RendererProcessOwner : IAsyncDisposable
         public uint Size, PageFaultCount;
         public nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool, QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
     }
-    [DllImport("psapi.dll", SetLastError=true)] private static extern bool GetProcessMemoryInfo(SafeProcessHandle process, ref MemoryCounters counters, uint size);
+    [LibraryImport("psapi.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool GetProcessMemoryInfo(SafeProcessHandle process, ref MemoryCounters counters, uint size);
     private sealed class ThreadHandle : SafeHandleZeroOrMinusOneIsInvalid { public ThreadHandle(nint value) : base(true) => SetHandle(value); protected override bool ReleaseHandle() => CloseHandle(handle); }
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool InitializeProcThreadAttributeList(nint list, int count, uint flags, ref nuint size);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool UpdateProcThreadAttribute(nint list, uint flags, nuint attribute, nint value, nuint size, nint previous, nint returned);
-    [DllImport("kernel32.dll")] private static extern void DeleteProcThreadAttributeList(nint list);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool InitializeProcThreadAttributeList(nint list, int count, uint flags, ref nuint size);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool UpdateProcThreadAttribute(nint list, uint flags, nuint attribute, nint value, nuint size, nint previous, nint returned);
+    [LibraryImport("kernel32.dll")] private static partial void DeleteProcThreadAttributeList(nint list);
     [DllImport("kernel32.dll", EntryPoint="CreateProcessW", CharSet=CharSet.Unicode, SetLastError=true)] private static extern bool CreateProcess(string application, StringBuilder command, nint processAttributes, nint threadAttributes, bool inherit, uint flags, nint environment, string? directory, ref StartupInfoEx startup, out ProcessInfo info);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern uint ResumeThread(ThreadHandle thread);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern uint WaitForSingleObject(SafeProcessHandle process, uint milliseconds);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool GetExitCodeProcess(SafeProcessHandle process, out uint code);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool TerminateProcess(SafeProcessHandle process, uint code);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(nint handle);
+    [LibraryImport("kernel32.dll", SetLastError=true)] private static partial uint ResumeThread(ThreadHandle thread);
+    [LibraryImport("kernel32.dll", SetLastError=true)] private static partial uint WaitForSingleObject(SafeProcessHandle process, uint milliseconds);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool GetExitCodeProcess(SafeProcessHandle process, out uint code);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool TerminateProcess(SafeProcessHandle process, uint code);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool CloseHandle(nint handle);
 }
