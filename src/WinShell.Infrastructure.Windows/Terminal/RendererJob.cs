@@ -4,22 +4,20 @@ using Microsoft.Win32.SafeHandles;
 
 namespace WinShell.Infrastructure.Windows.Terminal;
 
-public sealed class RendererJob : IDisposable
+public sealed partial class RendererJob : IDisposable
 {
     private readonly JobHandle _handle = CreateJobObject(0, null);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private int _active;
     private bool _disposed;
     public RendererJob()
     {
         if (_handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
         var limits = new Limits { Basic = new BasicLimits { LimitFlags = 0x2308, ActiveProcessLimit = 2 }, ProcessMemoryLimit = 128u * 1024 * 1024, JobMemoryLimit = 256u * 1024 * 1024 };
-        if (!SetInformationJobObject(_handle, 9, ref limits, (uint)Marshal.SizeOf<Limits>()))
-        {
-            var error = new Win32Exception(Marshal.GetLastWin32Error());
-            _handle.Dispose();
-            throw error;
-        }
+        if (SetInformationJobObject(_handle, 9, ref limits, (uint)Marshal.SizeOf<Limits>())) return;
+        var error = new Win32Exception(Marshal.GetLastWin32Error());
+        _handle.Dispose();
+        throw error;
     }
     internal void Acquire()
     {
@@ -40,8 +38,8 @@ public sealed class RendererJob : IDisposable
     public static Limits QueryCurrentProcessJob() => Query(0);
     private static Limits Query(nint handle)
     {
-        if (!QueryInformationJobObject(handle, 9, out var limits, (uint)Marshal.SizeOf<Limits>(), 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        return limits;
+        return QueryInformationJobObject(handle, 9, out var limits, (uint)Marshal.SizeOf<Limits>(), 0)
+            ? limits : throw new Win32Exception(Marshal.GetLastWin32Error());
     }
     public void Dispose() { lock (_gate) { if (_disposed) return; _disposed = true; _handle.Dispose(); } }
     [StructLayout(LayoutKind.Sequential)] public struct BasicLimits
@@ -64,9 +62,13 @@ public sealed class RendererJob : IDisposable
         public JobHandle() : base(true) { }
         protected override bool ReleaseHandle() => CloseHandle(handle);
     }
-    [DllImport("kernel32.dll", EntryPoint="CreateJobObjectW", CharSet=CharSet.Unicode, SetLastError=true)] private static extern JobHandle CreateJobObject(nint attributes, string? name);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool QueryInformationJobObject(nint job, int infoClass, out Limits limits, uint length, nint returned);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool SetInformationJobObject(JobHandle job, int infoClass, ref Limits limits, uint length);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool AssignProcessToJobObject(JobHandle job, SafeProcessHandle process);
-    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(nint handle);
+    [LibraryImport("kernel32.dll", EntryPoint="CreateJobObjectW", StringMarshalling = StringMarshalling.Utf16, SetLastError=true)] private static partial JobHandle CreateJobObject(nint attributes, string? name);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool QueryInformationJobObject(nint job, int infoClass, out Limits limits, uint length, nint returned);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool SetInformationJobObject(JobHandle job, int infoClass, ref Limits limits, uint length);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool AssignProcessToJobObject(JobHandle job, SafeProcessHandle process);
+    [LibraryImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool CloseHandle(nint handle);
 }
