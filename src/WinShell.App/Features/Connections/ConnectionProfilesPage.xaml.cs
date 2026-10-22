@@ -7,7 +7,7 @@ using WinShell.Core.Profiles;
 
 namespace WinShell.App.Features.Connections;
 
-public sealed partial class ConnectionProfilesPage : Page
+public sealed partial class ConnectionProfilesPage
 {
     public ConnectionProfilesViewModel ViewModel { get; }
     public event EventHandler<ConnectionProfile>? OpenProfileRequested;
@@ -36,9 +36,20 @@ public sealed partial class ConnectionProfilesPage : Page
 
     private async void Page_Loaded(object sender, RoutedEventArgs args)
     {
-        if (_loaded || _closing) return;
-        _loaded = true;
-        await RunActionAsync(() => ViewModel.LoadAsync(_dialogCancellation.Token));
+        try
+        {
+            if (_loaded || _closing)
+                return;
+            _loaded = true;
+            await RunActionAsync(() => ViewModel.LoadAsync(_dialogCancellation.Token));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
     }
 
     private void ViewModel_Changed(object? sender, PropertyChangedEventArgs args)
@@ -116,10 +127,49 @@ public sealed partial class ConnectionProfilesPage : Page
     }
 
     private static ConnectionProfile? RowProfile(object sender) => (sender as FrameworkElement)?.Tag as ConnectionProfile;
-    private async void NewProfile_Click(object sender, RoutedEventArgs args) => await RunActionAsync(() => EditAsync(null));
+    private async void NewProfile_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunActionAsync(() => EditAsync(null));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
+    }
     private async void EditProfile_Click(object sender, RoutedEventArgs args)
-    { if (RowProfile(sender) is { } profile) await RunActionAsync(() => EditAsync(profile)); }
-    private async void Reload_Click(object sender, RoutedEventArgs args) => await RunActionAsync(() => ViewModel.LoadAsync(_dialogCancellation.Token));
+    {
+        try
+        {
+            if (RowProfile(sender)is { } profile)
+                await RunActionAsync(() => EditAsync(profile));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
+    }
+    private async void Reload_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunActionAsync(() => ViewModel.LoadAsync(_dialogCancellation.Token));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
+    }
 
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
@@ -174,36 +224,74 @@ public sealed partial class ConnectionProfilesPage : Page
     private void ProfilesList_KeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (args.Key != Windows.System.VirtualKey.Enter || IsRowButton(args.OriginalSource as DependencyObject)) return;
-        if (ProfilesList.SelectedItem is ConnectionProfileListItemViewModel row) { args.Handled = true; OpenProfile(row.Profile); }
+        if (ProfilesList.SelectedItem is not ConnectionProfileListItemViewModel row) return;
+        args.Handled = true;
+        OpenProfile(row.Profile);
     }
 
     private void OpenDetails_Click(object sender, RoutedEventArgs args)
     {
-        if (!_closing && ViewModel.CanEdit && RowProfile(sender) is { } profile)
-        { ViewModel.SelectedProfile = profile; OpenProfileRequested?.Invoke(this, profile); }
+        if (_closing || !ViewModel.CanEdit || RowProfile(sender) is not { } profile) return;
+        ViewModel.SelectedProfile = profile;
+        OpenProfileRequested?.Invoke(this, profile);
     }
 
     private async void CheckCredential_Click(object sender, RoutedEventArgs args)
-    { if (RowProfile(sender) is { } profile) await RunActionAsync(() => ViewModel.CheckCredentialAsync(profile.Id, _dialogCancellation.Token)); }
+    {
+        try
+        {
+            if (RowProfile(sender)is { } profile)
+                await RunActionAsync(() => ViewModel.CheckCredentialAsync(profile.Id, _dialogCancellation.Token));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
+    }
 
     private async void DeleteCredential_Click(object sender, RoutedEventArgs args)
     {
-        if (RowProfile(sender) is not { } profile) return;
-        await RunActionAsync(async () =>
+        try
         {
-            if (await _dialogs.ConfirmAsync(XamlRoot, "删除此连接的凭据？", "连接配置将保留。此操作无法撤销。", "删除", _dialogCancellation.Token) && !_closing)
-                await ViewModel.DeleteCredentialAsync(profile.Id, _dialogCancellation.Token);
-        });
+            if (RowProfile(sender)is not { } profile)
+                return;
+            await RunActionAsync(async () =>
+            {
+                if (await _dialogs.ConfirmAsync(XamlRoot, "删除此连接的凭据？", "连接配置将保留。此操作无法撤销。", "删除", _dialogCancellation.Token) && !_closing)
+                    await ViewModel.DeleteCredentialAsync(profile.Id, _dialogCancellation.Token);
+            });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
     }
 
     private async void DeleteProfile_Click(object sender, RoutedEventArgs args)
     {
-        if (RowProfile(sender) is not { } profile) return;
-        await RunActionAsync(async () =>
+        try
         {
-            if (await _dialogs.ConfirmAsync(XamlRoot, "删除此连接配置？", "将先删除此连接的凭据，再删除配置。此操作无法撤销。", "删除", _dialogCancellation.Token) && !_closing)
-                await ViewModel.DeleteProfileAsync(profile.Id, _dialogCancellation.Token);
-        });
+            if (RowProfile(sender)is not { } profile)
+                return;
+            await RunActionAsync(async () =>
+            {
+                if (await _dialogs.ConfirmAsync(XamlRoot, "删除此连接配置？", "将先删除此连接的凭据，再删除配置。此操作无法撤销。", "删除", _dialogCancellation.Token) && !_closing)
+                    await ViewModel.DeleteProfileAsync(profile.Id, _dialogCancellation.Token);
+            });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+                _shutdownFailures.Add(error);
+            else
+                ViewModel.ReportValidationError("页面操作未能完成，请重试。");
+        }
     }
 
     public void FocusProfiles() => ProfilesList.Focus(FocusState.Programmatic);
