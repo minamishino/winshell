@@ -5,7 +5,7 @@ using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
 using WinShell.Core.Tunnels;
 namespace WinShell.App.Features.Tunnels;
-public sealed partial class TunnelsPage : Page
+public sealed partial class TunnelsPage
 {
     private readonly IConnectionProfileRepository _profiles;
     private readonly NativeDialogService _dialogs;
@@ -19,7 +19,7 @@ public sealed partial class TunnelsPage : Page
     public TunnelsViewModel ViewModel {get;}
     public TunnelsPage(ITunnelFactory factory,IKnownHostRepository knownHosts,ITunnelDefinitionRepository definitions,IConnectionProfileRepository profiles,NativeDialogService dialogs)
     {
-        _profiles=profiles; _dialogs=dialogs; ViewModel=new(factory,knownHosts,definitions,ConfirmAsync);
+        _profiles=profiles; _dialogs=dialogs; ViewModel=new TunnelsViewModel(factory,knownHosts,definitions,ConfirmAsync);
         InitializeComponent(); DataContext=ViewModel;
         _timer=DispatcherQueue.CreateTimer(); _timer.Interval=TimeSpan.FromMilliseconds(100); _timer.Tick+=Tick; _timer.Start();
     }
@@ -29,7 +29,7 @@ public sealed partial class TunnelsPage : Page
         await ViewModel.LoadAsync(_stop.Token); var saved=await _profiles.ReadAsync(_stop.Token); _stop.Token.ThrowIfCancellationRequested();
         Profiles.ItemsSource=saved.Profiles.Where(profile=>profile.Protocol==ConnectionProtocol.Ssh).ToArray(); Profiles.SelectedIndex=Profiles.Items.Count==0?-1:0;
     });
-    private void Kind_SelectionChanged(object sender,SelectionChangedEventArgs args) { if(TargetFields is not null) TargetFields.Visibility=Kind.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible; }
+    private void Kind_SelectionChanged(object sender,SelectionChangedEventArgs args) { TargetFields?.Visibility=Kind.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible; }
     private void Definitions_SelectionChanged(object sender,SelectionChangedEventArgs args)
     {
         if(Definitions.SelectedItem is not TunnelRowViewModel row)return;
@@ -39,20 +39,69 @@ public sealed partial class TunnelsPage : Page
         Profiles.SelectedItem=Profiles.Items.OfType<ConnectionProfile>().FirstOrDefault(profile=>profile.Id==definition.ProfileId);
     }
     private void New_Click(object sender,RoutedEventArgs args) { Definitions.SelectedItem=null; TunnelEditor.IsExpanded=true; TunnelName.Text=""; TunnelName.Focus(FocusState.Programmatic); }
-    private async void Reload_Click(object sender,RoutedEventArgs args)=>await LoadAsync();
-    private async void Save_Click(object sender,RoutedEventArgs args)=>await RunAsync(async()=>{
-        if(Profiles.SelectedItem is not ConnectionProfile profile)throw new ArgumentException("请选择已保存的 SSH 配置。");
-        var kind=(TunnelKind)Kind.SelectedIndex;
-        static ushort Port(double value) { if(!double.IsFinite(value)||value!=Math.Truncate(value)||value<0||value>65535)throw new ArgumentException("请输入有效整数端口。"); return (ushort)value; }
-        var definition=new TunnelDefinition((Definitions.SelectedItem as TunnelRowViewModel)?.Definition.Id??Guid.NewGuid(),TunnelName.Text,profile.Id,kind,Port(ListenPort.Value),kind==TunnelKind.Dynamic?"":TargetHost.Text,kind==TunnelKind.Dynamic?(ushort)0:Port(TargetPort.Value));
-        await ViewModel.SaveAsync(definition,_stop.Token); Definitions.SelectedItem=ViewModel.Rows.First(row=>row.Definition.Id==definition.Id); Feedback.Text="定义已保存，尚未自动启动。";
-    });
-    private async void Start_Click(object sender,RoutedEventArgs args)=>await RunAsync(async()=>{
-        if(Definitions.SelectedItem is not TunnelRowViewModel row)throw new ArgumentException("请选择隧道定义。");
-        var saved=await _profiles.ReadAsync(_stop.Token); var profile=saved.Profiles.FirstOrDefault(value=>value.Id==row.Definition.ProfileId)??throw new ArgumentException("引用的 SSH 配置不存在。");
-        await ViewModel.StartAsync(row,profile);
-    });
-    private async void Stop_Click(object sender,RoutedEventArgs args) { if(Definitions.SelectedItem is TunnelRowViewModel row)await StopRowAsync(row); }
+    private async void Reload_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "隧道页面操作未能完成，请重试。";
+        }
+    }
+    private async void Save_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(async () =>
+            {
+                if (Profiles.SelectedItem is not ConnectionProfile profile)
+                    throw new ArgumentException("请选择已保存的 SSH 配置。");
+                var kind = (TunnelKind)Kind.SelectedIndex;
+                var definition = new TunnelDefinition((Definitions.SelectedItem as TunnelRowViewModel)?.Definition.Id ?? Guid.NewGuid(), TunnelName.Text, profile.Id, kind, ReadPort(ListenPort.Value), kind == TunnelKind.Dynamic ? "" : TargetHost.Text, kind == TunnelKind.Dynamic ? (ushort)0 : ReadPort(TargetPort.Value));
+                await ViewModel.SaveAsync(definition, _stop.Token);
+                Definitions.SelectedItem = ViewModel.Rows.First(row => row.Definition.Id == definition.Id);
+                Feedback.Text = "定义已保存，尚未自动启动。";
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "隧道页面操作未能完成，请重试。";
+        }
+    }
+    private async void Start_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(async () =>
+            {
+                if (Definitions.SelectedItem is not TunnelRowViewModel row)
+                    throw new ArgumentException("请选择隧道定义。");
+                var saved = await _profiles.ReadAsync(_stop.Token);
+                var profile = saved.Profiles.FirstOrDefault(value => value.Id == row.Definition.ProfileId) ?? throw new ArgumentException("引用的 SSH 配置不存在。");
+                await ViewModel.StartAsync(row, profile);
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "隧道页面操作未能完成，请重试。";
+        }
+    }
+    private static ushort ReadPort(double value) => double.IsInteger(value) && value is >= 0 and <= 65535
+        ? (ushort)value : throw new ArgumentException("请输入有效整数端口。");
+    private async void Stop_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            if (Definitions.SelectedItem is TunnelRowViewModel row)
+                await StopRowAsync(row);
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "隧道页面操作未能完成，请重试。";
+        }
+    }
     private Task StopRowAsync(TunnelRowViewModel row)
     {
         if(_rowStops.TryGetValue(row,out var existing))return existing;
@@ -60,15 +109,28 @@ public sealed partial class TunnelsPage : Page
         var completion=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _rowStops.Add(row,completion.Task);_actions.Add(completion.Task);_=StopCoreAsync();return completion.Task;
         async Task StopCoreAsync() {
-            try {await ViewModel.StopAsync(row);}
+            try {await TunnelsViewModel.StopAsync(row);}
             catch(Exception) {Feedback.Text="隧道关闭失败，请检查连接状态。";}
             finally {_rowStops.Remove(row);_actions.Remove(completion.Task);completion.SetResult();}
         }
     }
-    private async void Delete_Click(object sender,RoutedEventArgs args)=>await RunAsync(async()=>{
-        if(Definitions.SelectedItem is not TunnelRowViewModel row)return;
-        if(await _dialogs.ConfirmAsync(XamlRoot,"删除隧道定义",$"停止并删除“{row.Name}”？","删除",_stop.Token))await ViewModel.DeleteAsync(row,_stop.Token);
-    });
+    private async void Delete_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await RunAsync(async () =>
+            {
+                if (Definitions.SelectedItem is not TunnelRowViewModel row)
+                    return;
+                if (await _dialogs.ConfirmAsync(XamlRoot, "删除隧道定义", $"停止并删除“{row.Name}”？", "删除", _stop.Token))
+                    await ViewModel.DeleteAsync(row, _stop.Token);
+            });
+        }
+        catch (Exception)
+        {
+            Feedback.Text = "隧道页面操作未能完成，请重试。";
+        }
+    }
     public Task CloseProfileAsync(Guid profileId)
     {
         if(_profileClosures.TryGetValue(profileId,out var existing))return existing;
