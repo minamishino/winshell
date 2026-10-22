@@ -32,10 +32,11 @@ The complete Microsoft Terminal license and native third-party notices are deplo
 as ThirdPartyNotices.txt and NOTICE.html alongside the fixed native DLL.
 
 */
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 namespace WinShell.Terminal.NativeHost;
-internal static class NativeTerminalBindings
+internal static partial class NativeTerminalBindings
     {
         private const string TerminalControlLibrary = "Microsoft.Terminal.Control.dll";
 
@@ -90,15 +91,14 @@ internal static class NativeTerminalBindings
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        internal struct TerminalTheme
+        internal unsafe struct TerminalTheme
         {
             internal uint DefaultBackground;
             internal uint DefaultForeground;
             internal uint DefaultSelectionBackground;
             internal CaretStyle CursorStyle;
 
-            [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.U4, SizeConst = 16)]
-            internal uint[] ColorTable;
+            internal fixed uint ColorTable[16];
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -121,90 +121,104 @@ internal static class NativeTerminalBindings
             internal int Y;
         }
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
-        internal static extern int CreateTerminal(nint parent, out nint window, out TerminalHandle terminal);
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial int CreateTerminal(nint parent, out nint window, out TerminalHandle terminal);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void DestroyTerminal(nint terminal);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void DestroyTerminal(nint terminal);
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalRegisterWriteCallback(TerminalHandle terminal, [MarshalAs(UnmanagedType.FunctionPtr)] WriteCallback callback);
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalRegisterWriteCallback(TerminalHandle terminal, [MarshalAs(UnmanagedType.FunctionPtr)] WriteCallback callback);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalRegisterScrollCallback(TerminalHandle terminal, [MarshalAs(UnmanagedType.FunctionPtr)] ScrollCallback callback);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalRegisterScrollCallback(TerminalHandle terminal, [MarshalAs(UnmanagedType.FunctionPtr)] ScrollCallback callback);
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalSendOutput(TerminalHandle terminal, string data);
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalSendOutput(TerminalHandle terminal, string data);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalSendKeyEvent(TerminalHandle terminal, ushort virtualKey, ushort scanCode, ushort flags, [MarshalAs(UnmanagedType.I1)] bool keyDown);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalSendKeyEvent(TerminalHandle terminal, ushort virtualKey, ushort scanCode, ushort flags, [MarshalAs(UnmanagedType.I1)] bool keyDown);
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalSendCharEvent(TerminalHandle terminal, char character, ushort scanCode, ushort flags);
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalSendCharEvent(TerminalHandle terminal, char character, ushort scanCode, ushort flags);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern int TerminalTriggerResize(TerminalHandle terminal, int width, int height, out TerminalSizeNative dimensions);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial int TerminalTriggerResize(TerminalHandle terminal, int width, int height, out TerminalSizeNative dimensions);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalDpiChanged(TerminalHandle terminal, int dpi);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalDpiChanged(TerminalHandle terminal, int dpi);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalUserScroll(TerminalHandle terminal, int viewTop);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalUserScroll(TerminalHandle terminal, int viewTop);
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
 
-        internal static extern nint TerminalGetSelection(TerminalHandle terminal);
+        internal static partial nint TerminalGetSelection(TerminalHandle terminal);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
         [return: MarshalAs(UnmanagedType.I1)]
-        internal static extern bool TerminalIsSelectionActive(TerminalHandle terminal);
+        internal static partial bool TerminalIsSelectionActive(TerminalHandle terminal);
 
-        [DllImport(TerminalControlLibrary, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalSetTheme(TerminalHandle terminal, [MarshalAs(UnmanagedType.Struct)] TerminalTheme theme, string fontFamily, int fontSize, int dpi);
+        [LibraryImport(TerminalControlLibrary, StringMarshalling = StringMarshalling.Utf16)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalSetTheme(TerminalHandle terminal, TerminalTheme theme, string fontFamily, int fontSize, int dpi);
 
-        [DllImport(TerminalControlLibrary, CallingConvention = CallingConvention.StdCall)]
-        internal static extern void TerminalSetFocused(TerminalHandle terminal, [MarshalAs(UnmanagedType.I1)] bool focused);
+        [LibraryImport(TerminalControlLibrary)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+        internal static partial void TerminalSetFocused(TerminalHandle terminal, [MarshalAs(UnmanagedType.I1)] bool focused);
 
-        [DllImport("user32.dll", SetLastError = true)]
+        [LibraryImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
+        internal static partial bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
 
-        [DllImport("user32.dll")]
+        [LibraryImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool ShowWindow(nint window, int command);
+        internal static partial bool ShowWindow(nint window, int command);
 
-        [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern nint CreateWindowEx(uint extendedStyle, string className, string? windowName, uint style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+        [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+        internal static partial nint CreateWindowEx(uint extendedStyle, string className, string? windowName, uint style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
 
-        [DllImport("user32.dll", SetLastError = true)]
+        [LibraryImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool DestroyWindow(nint window);
+        internal static partial bool DestroyWindow(nint window);
 
-        [DllImport("user32.dll")]
+        [LibraryImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool IsWindow(nint window);
+        internal static partial bool IsWindow(nint window);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        internal static extern nint SetFocus(nint window);
+        [LibraryImport("user32.dll", SetLastError = true)]
+        internal static partial nint SetFocus(nint window);
 
-        [DllImport("user32.dll")]
-        internal static extern nint GetFocus();
+        [LibraryImport("user32.dll")]
+        internal static partial nint GetFocus();
 
-        [DllImport("user32.dll")]
-        internal static extern nint SendMessage(nint window, uint message, nuint wParam, nint lParam);
+        [LibraryImport("user32.dll", EntryPoint = "SendMessageA")]
+        internal static partial nint SendMessage(nint window, uint message, nuint wParam, nint lParam);
 
-        [DllImport("user32.dll")]
+        [LibraryImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool ClientToScreen(nint window, ref NativePoint point);
+        internal static partial bool ClientToScreen(nint window, ref NativePoint point);
 
-        [DllImport("user32.dll")]
-        internal static extern short GetKeyState(int virtualKey);
+        [LibraryImport("user32.dll")]
+        internal static partial short GetKeyState(int virtualKey);
 
-        [DllImport("user32.dll")]
-        internal static extern uint GetDoubleClickTime();
+        [LibraryImport("user32.dll")]
+        internal static partial uint GetDoubleClickTime();
 
-        [DllImport("user32.dll")]
-        internal static extern int GetSystemMetrics(int index);
+        [LibraryImport("user32.dll")]
+        internal static partial int GetSystemMetrics(int index);
 
         internal static bool IsKeyDown(int virtualKey)
         {

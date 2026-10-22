@@ -7,7 +7,7 @@ using static WinShell.Terminal.NativeHost.NativeTerminalBindings;
 
 namespace WinShell.Terminal.NativeHost;
 
-internal sealed class NativeRendererWindow
+internal sealed partial class NativeRendererWindow
 {
     private readonly RendererFrameCodec _reader = new(Console.OpenStandardInput());
     private readonly RendererFrameCodec _writer = new(Console.OpenStandardOutput());
@@ -33,7 +33,7 @@ internal sealed class NativeRendererWindow
     private byte[]? _pendingScroll;
     private int _scrollSending;
     private int _maximumWidth, _maximumHeight;
-    private readonly object _inputGate = new();
+    private readonly Lock _inputGate = new();
     private readonly List<Task> _writes = [];
 
     public NativeRendererWindow()
@@ -45,8 +45,8 @@ internal sealed class NativeRendererWindow
     public int Run()
     {
         _thread = GetCurrentThreadId();
-        PeekMessage(out _, 0, 0, 0, 0); // Create the STA message queue before the reader posts.
-        var reader = Task.Run(ReadLoopAsync);
+        _ = PeekMessage(out _, 0, 0, 0, 0); // Create the STA message queue before the reader posts; no message is required yet.
+        _ = Task.Run(ReadLoopAsync);
         while (!_closing)
         {
             var result = GetMessage(out var message, 0, 0, 0);
@@ -57,7 +57,7 @@ internal sealed class NativeRendererWindow
                 catch (Exception error) { _failure = error; _closing = true; }
                 finally { _pending = null; _consumed?.TrySetResult(); }
             }
-            else { TranslateMessage(ref message); DispatchMessage(ref message); }
+            else { _ = TranslateMessage(ref message); _ = DispatchMessage(ref message); }
         }
         // This is the message-loop frame, never a SendMessage/subclass callback stack.
         _closing = true;
@@ -76,41 +76,56 @@ internal sealed class NativeRendererWindow
             {
                 var frame = await _reader.ReadAsync(CancellationToken.None).ConfigureAwait(false);
                 if (frame.Type == RendererFrameType.InputAck) { lock (_inputGate) { if (_inputCount == 0) throw new InvalidDataException("Unexpected input ACK."); _inputCount--; } continue; }
-                _consumed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                _consumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 _pending = frame;
                 if (!PostThreadMessage(_thread, 0x8001, 0, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 await _consumed.Task.ConfigureAwait(false);
                 if (_closing) return;
-                await SendAsync(frame.Type == RendererFrameType.Initialize ? RendererFrameType.Ready : frame.Type == RendererFrameType.Resize ? RendererFrameType.Size : frame.Type == RendererFrameType.Copy ? RendererFrameType.Selection : RendererFrameType.Ack,
-                    frame.Type == RendererFrameType.Initialize ? BitConverter.GetBytes(_window.ToInt64()) : frame.Type == RendererFrameType.Resize ? _sizeReply! : frame.Type == RendererFrameType.Copy ? _selectionReply! : BitConverter.GetBytes(frame.Sequence)).ConfigureAwait(false);
+                var replyType = frame.Type switch
+                {
+                    RendererFrameType.Initialize => RendererFrameType.Ready,
+                    RendererFrameType.Resize => RendererFrameType.Size,
+                    RendererFrameType.Copy => RendererFrameType.Selection,
+                    _ => RendererFrameType.Ack
+                };
+                var replyPayload = frame.Type switch
+                {
+                    RendererFrameType.Initialize => BitConverter.GetBytes(_window.ToInt64()),
+                    RendererFrameType.Resize => _sizeReply!,
+                    RendererFrameType.Copy => _selectionReply!,
+                    _ => BitConverter.GetBytes(frame.Sequence)
+                };
+                await SendAsync(replyType, replyPayload).ConfigureAwait(false);
             }
         }
-        catch (Exception error) { _failure = error; _pending = new(RendererFrameType.Close, 0, default); PostThreadMessage(_thread, 0x8001, 0, 0); }
+        catch (Exception error) { _failure = error; _pending = new RendererFrame(RendererFrameType.Close, 0, default); PostThreadMessage(_thread, 0x8001, 0, 0); }
     }
-    private void Consume(RendererFrame frame)
+    private unsafe void Consume(RendererFrame frame)
     {
-        if (frame.Type == RendererFrameType.Close) { _closing = true; return; }
-        if (frame.Type == RendererFrameType.Initialize)
+        switch (frame)
         {
-            if (_terminal is not null || frame.Payload.Length != 8) throw new InvalidDataException("Invalid initialization.");
-            var parent = (nint)BinaryPrimitives.ReadInt64LittleEndian(frame.Payload.Span);
-            if (!IsWindow(parent) || !AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(parent), GetThreadDpiAwarenessContext())) throw new InvalidOperationException("Live parent and matching DPI awareness required.");
-            GetWindowThreadProcessId(parent, out var parentProcess);
-            if (parentProcess == Environment.ProcessId) throw new InvalidOperationException("Renderer requires cross-process parent.");
-            Marshal.ThrowExceptionForHR(CreateTerminal(parent, out _window, out _terminal));
-            if (!IsWindow(_window) || GetParent(_window) != parent) throw new InvalidOperationException("Native child not attached to the WinUI host.");
-            if (!SetWindowSubclass(_window, _subclassCallback, 1, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            EnableWindow(_window, false); // Backend startup must finish before physical input is admitted.
-            TerminalRegisterWriteCallback(_terminal, _writeCallback);
-            TerminalRegisterScrollCallback(_terminal, _scrollCallback);
-            TerminalDpiChanged(_terminal, checked((int)GetDpiForWindow(parent)));
-            Marshal.ThrowExceptionForHR(TerminalTriggerResize(_terminal, 640, 400, out var dimensions));
-            if (dimensions.X is < 1 or > 400 || dimensions.Y is < 1 or > 160) throw new InvalidOperationException("Native viewport exceeds budget.");
-            _maximumWidth = Math.Max(1, 640 / (dimensions.X + 1)) * 400;
-            _maximumHeight = Math.Max(1, 400 / (dimensions.Y + 1)) * 160;
-            if (!SetWindowPos(_window, 0, 0, 0, 640, 400, 0x14)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            ShowWindow(_window, 4);
-            return;
+            case { Type: RendererFrameType.Close }: _closing = true; return;
+            case { Type: RendererFrameType.Initialize }:
+                if (_terminal is not null || frame.Payload.Length != 8) throw new InvalidDataException("Invalid initialization.");
+                var parent = (nint)BinaryPrimitives.ReadInt64LittleEndian(frame.Payload.Span);
+                if (!IsWindow(parent) || !AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(parent), GetThreadDpiAwarenessContext())) throw new InvalidOperationException("Live parent and matching DPI awareness required.");
+                if (GetWindowThreadProcessId(parent, out var parentProcess) == 0)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not identify the terminal host process.");
+                if (parentProcess == Environment.ProcessId) throw new InvalidOperationException("Renderer requires cross-process parent.");
+                Marshal.ThrowExceptionForHR(CreateTerminal(parent, out _window, out _terminal));
+                if (!IsWindow(_window) || GetParent(_window) != parent) throw new InvalidOperationException("Native child not attached to the WinUI host.");
+                if (!SetWindowSubclass(_window, _subclassCallback, 1, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                _ = EnableWindow(_window, false); // Previous enabled state is irrelevant; startup must finish before input is admitted.
+                TerminalRegisterWriteCallback(_terminal, _writeCallback);
+                TerminalRegisterScrollCallback(_terminal, _scrollCallback);
+                TerminalDpiChanged(_terminal, checked((int)GetDpiForWindow(parent)));
+                Marshal.ThrowExceptionForHR(TerminalTriggerResize(_terminal, 640, 400, out var dimensions));
+                if (dimensions.X is < 1 or > 400 || dimensions.Y is < 1 or > 160) throw new InvalidOperationException("Native viewport exceeds budget.");
+                _maximumWidth = Math.Max(1, 640 / (dimensions.X + 1)) * 400;
+                _maximumHeight = Math.Max(1, 400 / (dimensions.Y + 1)) * 160;
+                if (!SetWindowPos(_window, 0, 0, 0, 640, 400, 0x14)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                ShowWindow(_window, 4);
+                return;
         }
         if (_terminal is null) throw new InvalidDataException("Initialization must be first.");
         switch (frame.Type)
@@ -124,17 +139,17 @@ internal sealed class NativeRendererWindow
                 _selectionReply = CopySelection();
                 break;
             case RendererFrameType.Theme:
-                var appearance = RendererThemePayload.Decode(frame.Payload.Span);
-                var dpi = appearance.Dpi;
+                var (_, dpi, background, foreground, fontFamily, fontSize, cursorStyle) = RendererThemePayload.Decode(frame.Payload.Span);
                 var theme = new TerminalTheme
                 {
-                    DefaultBackground = appearance.BackgroundColor,
-                    DefaultForeground = appearance.ForegroundColor,
+                    DefaultBackground = background,
+                    DefaultForeground = foreground,
                     DefaultSelectionBackground = 0x808080,
-                    CursorStyle = (CaretStyle)appearance.CursorStyle,
-                    ColorTable = [0x0C0C0C,0x1F0FC5,0x0EA113,0x009CC1,0xDA3700,0x981788,0xDD963A,0xCCCCCC,0x767676,0x5648E7,0x0CC616,0xA5F1F9,0xFF783B,0x9E00B4,0xD6D661,0xF2F2F2]
+                    CursorStyle = (CaretStyle)cursorStyle
                 };
-                TerminalSetTheme(_terminal, theme, appearance.FontFamily == 0 ? "Cascadia Code" : "Consolas", appearance.FontSize, dpi);
+                ReadOnlySpan<uint> colors = [0x0C0C0C,0x1F0FC5,0x0EA113,0x009CC1,0xDA3700,0x981788,0xDD963A,0xCCCCCC,0x767676,0x5648E7,0x0CC616,0xA5F1F9,0xFF783B,0x9E00B4,0xD6D661,0xF2F2F2];
+                colors.CopyTo(new Span<uint>(theme.ColorTable, 16));
+                TerminalSetTheme(_terminal, theme, fontFamily == 0 ? "Cascadia Code" : "Consolas", fontSize, dpi);
                 TerminalDpiChanged(_terminal, dpi);
                 Marshal.ThrowExceptionForHR(TerminalTriggerResize(_terminal, 640, 400, out var baseline));
                 _maximumWidth = Math.Max(1, 640 / (baseline.X + 1)) * 400;
@@ -154,7 +169,7 @@ internal sealed class NativeRendererWindow
             case RendererFrameType.Focus:
                 if (frame.Payload.Length != 1) throw new InvalidDataException();
                 _inputReady = true;
-                EnableWindow(_window, _visible);
+                _ = EnableWindow(_window, _visible);
                 var focused = frame.Payload.Span[0] != 0 && _visible;
                 if (focused) SetFocus(_window);
                 else if (GetFocus() == _window) SetFocus(0);
@@ -177,9 +192,18 @@ internal sealed class NativeRendererWindow
                     if (GetFocus() == _window) SetFocus(0);
                     TerminalSetFocused(_terminal, false);
                 }
-                EnableWindow(_window, _visible && _inputReady);
+                _ = EnableWindow(_window, _visible && _inputReady);
                 ShowWindow(_window, _visible ? 4 : 0);
                 break;
+            case RendererFrameType.Initialize:
+            case RendererFrameType.Close:
+            case RendererFrameType.Ready:
+            case RendererFrameType.Ack:
+            case RendererFrameType.Input:
+            case RendererFrameType.InputAck:
+            case RendererFrameType.Size:
+            case RendererFrameType.ScrollState:
+            case RendererFrameType.Selection:
             default: throw new InvalidDataException("Unsupported frame for renderer state.");
         }
     }
@@ -196,8 +220,9 @@ internal sealed class NativeRendererWindow
             if (length == 32768) throw new InvalidDataException("Selection exceeds bounded UTF16 scan.");
             var value = new ReadOnlySpan<char>(text, length);
             var encoding = new UTF8Encoding(false, true);
-            if (encoding.GetByteCount(value) > 65536) throw new InvalidDataException("Selection exceeds 64KiB UTF8.");
-            return encoding.GetBytes(value.ToString());
+            return encoding.GetByteCount(value) <= 65536
+                ? encoding.GetBytes(value.ToString())
+                : throw new InvalidDataException("Selection exceeds 64KiB UTF8.");
         }
         finally { Marshal.FreeCoTaskMem(pointer); }
     }
@@ -281,7 +306,7 @@ internal sealed class NativeRendererWindow
         if (!matchingKey && (scanCode == 0 || MapVirtualKeyW(scanCode, 1) == 0))
         {
             var characterKey = VkKeyScanW(character);
-            if (characterKey == -1 || characterKey > byte.MaxValue)
+            if (characterKey is -1 or > byte.MaxValue)
             {
                 // Reject the fixed engine's unmapped/packed-shift fallback, preserving safe Enter/Backspace keys.
                 // VK_PACKET seeds text without an extra input event when its scan is zero.
@@ -296,20 +321,18 @@ internal sealed class NativeRendererWindow
         if (_closing && message == 0x3D) return 0;
         try
         {
-            if (!_closing && _terminal is not null)
+            if (_closing || _terminal is null) return DefSubclassProc(window, message, wParam, lParam);
+            var scan = (ushort)(((ulong)lParam >> 16) & 0xff);
+            var flags = (ushort)(((ulong)lParam >> 16) & 0xff00);
+            switch (message)
             {
-                var scan = (ushort)(((ulong)lParam >> 16) & 0xff);
-                var flags = (ushort)(((ulong)lParam >> 16) & 0xff00);
-                switch (message)
-                {
-                    case 0x21: SetFocus(_window); TerminalSetFocused(_terminal, true); return 1;
-                    case 0x100: case 0x104: SendKey((ushort)wParam, scan, flags, true); return 0;
-                    case 0x101: case 0x105: SendKey((ushort)wParam, scan, flags, false); return 0;
-                    case 0x102: case 0x106: SendCharacter((char)wParam, scan, flags); return 0;
-                    case 7: TerminalSetFocused(_terminal, true); break;
-                    case 8: TerminalSetFocused(_terminal, false); break;
-                    case 0x204: case 0x205: case 0x206: return 0; // Never enter native unbounded clipboard path.
-                }
+                case 0x21: SetFocus(_window); TerminalSetFocused(_terminal, true); return 1;
+                case 0x100: case 0x104: SendKey((ushort)wParam, scan, flags, true); return 0;
+                case 0x101: case 0x105: SendKey((ushort)wParam, scan, flags, false); return 0;
+                case 0x102: case 0x106: SendCharacter((char)wParam, scan, flags); return 0;
+                case 7: TerminalSetFocused(_terminal, true); break;
+                case 8: TerminalSetFocused(_terminal, false); break;
+                case 0x204: case 0x205: case 0x206: return 0; // Never enter native unbounded clipboard path.
             }
             return DefSubclassProc(window, message, wParam, lParam);
         }
@@ -317,23 +340,29 @@ internal sealed class NativeRendererWindow
     }
     [StructLayout(LayoutKind.Sequential)] private struct Message { public nint Window; public uint Id; public nuint WParam; public nint LParam; public uint Time; public int X, Y; public uint Private; }
     private delegate nint SubclassCallback(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data);
-    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
-    [DllImport("user32.dll", SetLastError=true)] private static extern bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);
-    [DllImport("user32.dll", SetLastError=true)] private static extern int GetMessage(out Message message, nint window, uint min, uint max);
-    [DllImport("user32.dll")] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
-    [DllImport("user32.dll")] private static extern bool TranslateMessage(ref Message message);
-    [DllImport("user32.dll")] private static extern nint DispatchMessage(ref Message message);
-    [DllImport("user32.dll")] private static extern uint MapVirtualKeyW(uint code, uint mapping);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern short VkKeyScanW(char character);
-    [DllImport("user32.dll")] private static extern nint GetParent(nint window);
-    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
-    [DllImport("user32.dll")] private static extern nint GetWindowDpiAwarenessContext(nint window);
-    [DllImport("user32.dll")] private static extern nint GetThreadDpiAwarenessContext();
-    [DllImport("user32.dll")] private static extern bool AreDpiAwarenessContextsEqual(nint first, nint second);
-    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
-    [DllImport("user32.dll")] private static extern bool EnableWindow(nint window, bool enabled);
-    [DllImport("user32.dll")] private static extern nint GetFocus();
-    [DllImport("comctl32.dll", SetLastError=true)] private static extern bool SetWindowSubclass(nint window, SubclassCallback callback, nuint id, nuint data);
-    [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
-    [DllImport("uiautomationcore.dll")] private static extern int UiaDisconnectAllProviders();
+    [LibraryImport("kernel32.dll")] private static partial uint GetCurrentThreadId();
+    [LibraryImport("user32.dll", SetLastError=true, EntryPoint = "PostThreadMessageA")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);
+    [LibraryImport("user32.dll", SetLastError=true, EntryPoint = "GetMessageA")] private static partial int GetMessage(out Message message, nint window, uint min, uint max);
+    [LibraryImport("user32.dll", EntryPoint = "PeekMessageA")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool TranslateMessage(ref Message message);
+    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageA")] private static partial nint DispatchMessage(ref Message message);
+    [LibraryImport("user32.dll")] private static partial uint MapVirtualKeyW(uint code, uint mapping);
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)] private static partial short VkKeyScanW(char character);
+    [LibraryImport("user32.dll")] private static partial nint GetParent(nint window);
+    [LibraryImport("user32.dll", SetLastError = true)] private static partial uint GetWindowThreadProcessId(nint window, out uint process);
+    [LibraryImport("user32.dll")] private static partial nint GetWindowDpiAwarenessContext(nint window);
+    [LibraryImport("user32.dll")] private static partial nint GetThreadDpiAwarenessContext();
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool AreDpiAwarenessContextsEqual(nint first, nint second);
+    [LibraryImport("user32.dll")] private static partial uint GetDpiForWindow(nint window);
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool EnableWindow(nint window, [MarshalAs(UnmanagedType.Bool)] bool enabled);
+    [LibraryImport("user32.dll")] private static partial nint GetFocus();
+    [LibraryImport("comctl32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool SetWindowSubclass(nint window, SubclassCallback callback, nuint id, nuint data);
+    [LibraryImport("comctl32.dll")] private static partial nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
+    [LibraryImport("uiautomationcore.dll")] private static partial int UiaDisconnectAllProviders();
 }
