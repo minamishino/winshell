@@ -33,7 +33,7 @@ public sealed class JsonMcpGrantRepository : IMcpGrantRepository
             foreach (var row in rows.EnumerateArray())
             {
                 Properties(row, version == 1 ? ["profileId", "profileBinding", "hostKeyBinding", "listProfiles", "runScript"] : ["profileId", "profileBinding", "hostKeyBinding", "listProfiles", "runScript", "dockerRead", "dockerControl", "dockerExec"]);
-                grants.Add(new(row.GetProperty("profileId").GetGuid(), row.GetProperty("profileBinding").GetString()!,
+                grants.Add(new McpGrant(row.GetProperty("profileId").GetGuid(), row.GetProperty("profileBinding").GetString()!,
                     row.GetProperty("hostKeyBinding").GetString()!, row.GetProperty("listProfiles").GetBoolean(), row.GetProperty("runScript").GetBoolean(),
                     version == 2 && row.GetProperty("dockerRead").GetBoolean(), version == 2 && row.GetProperty("dockerControl").GetBoolean(), version == 2 && row.GetProperty("dockerExec").GetBoolean()));
             }
@@ -75,21 +75,21 @@ public sealed class JsonMcpGrantRepository : IMcpGrantRepository
             finally { File.Delete(temporary); }
         }, cancellationToken);
     }
-    private static void Validate(IReadOnlyList<McpGrant> grants)
+    private static void Validate(IReadOnlyList<McpGrant?> grants)
     {
         if (grants.Count > 64) throw new InvalidDataException("最多 64 项授权。");
         var ids = new HashSet<Guid>();
-        foreach (var grant in grants)
-            if (grant is null || grant.ProfileId == Guid.Empty || !ids.Add(grant.ProfileId) || !Hash(grant.ProfileBinding) || !Hash(grant.HostKeyBinding))
-                throw new InvalidDataException("授权记录无效或重复。");
+        if (grants.Any(grant => grant is null || grant.ProfileId == Guid.Empty || !ids.Add(grant.ProfileId) ||
+                !Hash(grant.ProfileBinding) || !Hash(grant.HostKeyBinding)))
+            throw new InvalidDataException("授权记录无效或重复。");
     }
     private static bool Hash(string? text) => text is { Length: 64 } && text.All(character => character is >= '0' and <= '9' or >= 'A' and <= 'F');
     private static void Properties(JsonElement element, params string[] names)
     {
         if (element.ValueKind != JsonValueKind.Object) throw new InvalidDataException("授权记录必须是对象。");
         var remaining = names.ToHashSet(StringComparer.Ordinal);
-        foreach (var property in element.EnumerateObject())
-            if (!remaining.Remove(property.Name)) throw new InvalidDataException("授权字段未知或重复。");
+        if (element.EnumerateObject().Any(property => !remaining.Remove(property.Name)))
+            throw new InvalidDataException("授权字段未知或重复。");
         if (remaining.Count != 0) throw new InvalidDataException("授权字段缺失。");
     }
     private Task<T> LockedAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken token) => Task.Run(async () =>
@@ -123,7 +123,7 @@ public sealed class JsonMcpGrantRepository : IMcpGrantRepository
             try
             {
                 ProfileStorageAccess.IsRegularFileOrMissing(path);
-                return new(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
             catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33) { await Task.Delay(25, token).ConfigureAwait(false); }
         }
