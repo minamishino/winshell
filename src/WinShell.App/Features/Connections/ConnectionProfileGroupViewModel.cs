@@ -3,8 +3,8 @@ using WinShell.Core.Profiles;
 
 namespace WinShell.App.Features.Connections;
 
-public sealed class ConnectionProfileGroupViewModel(string name, IEnumerable<ConnectionProfile> profiles)
-    : ReadOnlyCollection<ConnectionProfileListItemViewModel>(profiles.Select(profile => new ConnectionProfileListItemViewModel(profile)).ToArray())
+public sealed partial class ConnectionProfileGroupViewModel(string name, IEnumerable<ConnectionProfile> profiles)
+    : ReadOnlyCollection<ConnectionProfileListItemViewModel>([.. profiles.Select(profile => new ConnectionProfileListItemViewModel(profile))])
 {
     public string Name { get; } = name;
 }
