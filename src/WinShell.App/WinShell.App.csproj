@@ -9,6 +9,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
+    <!-- C#/WinRT generates ABI vtables for the partial XAML controls and view models. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <!-- HTTP companion is deployed as a separate process; no assembly reference enters App. -->
@@ -30,7 +32,7 @@
     <ProjectReference Include="..\WinShell.Infrastructure.Ftp\WinShell.Infrastructure.Ftp.csproj" />
     <ProjectReference Include="..\WinShell.Core\WinShell.Core.csproj" />
     <ProjectReference Include="..\WinShell.Infrastructure.Windows\WinShell.Infrastructure.Windows.csproj" />
-    <ProjectReference Include="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" ReferenceOutputAssembly="false" AdditionalProperties="Platform=x64" />
+    <ProjectReference Include="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" ReferenceOutputAssembly="false" AdditionalProperties="Platform=AnyCPU" />
     <ProjectReference Include="../WinShell.Mcp/WinShell.Mcp.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" AdditionalProperties="Platform=AnyCPU" />
     <ProjectReference Include="../WinShell.Mcp.Http/WinShell.Mcp.Http.csproj" ReferenceOutputAssembly="false" Private="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;RuntimeFrameworkVersion;PublishDir;PublishUrl" AdditionalProperties="Platform=AnyCPU" />
   </ItemGroup>
@@ -63,7 +65,13 @@
     </ItemGroup>
   </Target>
   <Target Name="CopyNativeRenderer" AfterTargets="Build">
-    <ItemGroup><NativeRendererFiles Include="../WinShell.Terminal.NativeHost/bin/x64/$(Configuration)/$(TargetFramework)/win-x64/*" /></ItemGroup>
+    <MSBuild Projects="../WinShell.Terminal.NativeHost/WinShell.Terminal.NativeHost.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=AnyCPU">
+      <Output TaskParameter="TargetOutputs" ItemName="NativeRendererAssembly" />
+    </MSBuild>
+    <Error Condition="'@(NativeRendererAssembly)' == ''" Text="Native renderer output path must be resolved before packaging the App." />
+    <PropertyGroup><NativeRendererOutputDirectory>@(NativeRendererAssembly->'%(RootDir)%(Directory)')</NativeRendererOutputDirectory></PropertyGroup>
+    <Error Condition="!Exists('$(NativeRendererOutputDirectory)WinShell.Terminal.NativeHost.exe') or !Exists('$(NativeRendererOutputDirectory)WinShell.Terminal.NativeHost.dll') or !Exists('$(NativeRendererOutputDirectory)WinShell.Terminal.NativeHost.runtimeconfig.json') or !Exists('$(NativeRendererOutputDirectory)WinShell.Terminal.NativeHost.deps.json')" Text="Complete native renderer output must be built before packaging the App." />
+    <ItemGroup><NativeRendererFiles Include="$(NativeRendererOutputDirectory)*" /></ItemGroup>
     <Error Condition="'@(NativeRendererFiles)' == ''" Text="Native renderer output must be built before packaging the App." />
     <Copy SourceFiles="@(NativeRendererFiles)" DestinationFolder="$(OutDir)Terminal" SkipUnchangedFiles="false" />
   </Target>
@@ -99,7 +107,7 @@
     </ItemGroup>
     <Error Condition="!Exists('%(TerminalRequiredPublishFiles.Identity)')" Text="Missing required terminal publish asset: %(TerminalRequiredPublishFiles.Identity). Build the complete App before publishing." />
     <ItemGroup>
-      <TerminalFilesToPublish Include="$(OutDir)Terminal/**/*" />
+      <TerminalFilesToPublish Include="$(OutDir)Terminal/**/*" Exclude="$(OutDir)Terminal/peer.cjs" />
       <ResolvedFileToPublish Include="@(TerminalFilesToPublish)" RelativePath="Terminal/%(TerminalFilesToPublish.RecursiveDir)%(TerminalFilesToPublish.Filename)%(TerminalFilesToPublish.Extension)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
