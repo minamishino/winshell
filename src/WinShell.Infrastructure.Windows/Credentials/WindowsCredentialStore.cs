@@ -51,8 +51,7 @@ public sealed class WindowsCredentialStore : ICredentialStore
         {
             _nativeApi.Delete(targetName);
             using var confirmation = ReadForConfirmation(targetName);
-            if (confirmation is not null) throw new CredentialOperationUnconfirmedException();
-            return true;
+            return confirmation is null ? true : throw new CredentialOperationUnconfirmedException();
         }, cancellationToken);
     }
 
@@ -92,8 +91,8 @@ public sealed class WindowsCredentialStore : ICredentialStore
 
     private static string GetTargetName(Guid profileId)
     {
-        if (profileId == Guid.Empty)
-            throw new ArgumentException("A nonempty connection profile ID is required.", nameof(profileId));
-        return $"WinShell/connection/{profileId:D}";
+        return profileId != Guid.Empty
+            ? $"WinShell/connection/{profileId:D}"
+            : throw new ArgumentException("A nonempty connection profile ID is required.", nameof(profileId));
     }
 }
