@@ -1,6 +1,11 @@
 <Page x:Class="WinShell.App.Features.Tunnels.TunnelsPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WinShell.App.Features.Tunnels"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=vm:TunnelsViewModel, IsDesignTimeCreatable=False}">
     <Grid Padding="{StaticResource WinShellPagePadding}" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -8,6 +13,8 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <!-- Used by the runtime UI checks through FindName("TunnelActions"). -->
+        <!-- ReSharper disable once UnusedMember.Local -->
         <Grid x:Name="TunnelActions" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -79,7 +86,7 @@
             </ScrollViewer>
         </Expander>
         <Border Grid.Row="2" Style="{StaticResource WinShellCardStyle}" Padding="0">
-            <ListView x:Name="Definitions" ItemsSource="{Binding Rows}" SelectionChanged="Definitions_SelectionChanged"
+            <ListView x:Name="Definitions" ItemsSource="{Binding Path=Rows}" SelectionChanged="Definitions_SelectionChanged"
                       ContainerContentChanging="Definitions_ContainerContentChanging"
                       HorizontalContentAlignment="Stretch" AutomationProperties.Name="已保存的 SSH 隧道" SelectionMode="Single">
                 <ListView.ItemTemplate>
@@ -87,14 +94,14 @@
                         <Grid Padding="8,6" RowSpacing="4" ColumnSpacing="12">
                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Name}" />
-                            <TextBlock Grid.Column="1" Text="{Binding Status}" />
-                            <TextBlock Grid.Row="1" Text="{Binding Kind}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="{Binding Path=Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Path=Name}" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Path=Status}" />
+                            <TextBlock Grid.Column="0" Grid.Row="1" Text="{Binding Path=Kind}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <TextBlock Grid.Row="1" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                <Run Text="端口 " /><Run Text="{Binding BoundPort}" /><Run Text=" · 连接 " /><Run Text="{Binding ActiveConnections}" />
+                                <Run Text="端口 " /><Run Text="{Binding Path=BoundPort}" /><Run Text=" · 连接 " /><Run Text="{Binding Path=ActiveConnections}" />
                             </TextBlock>
-                            <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Error}" TextWrapping="Wrap"
-                                       Visibility="{Binding Error, Converter={StaticResource WinShellTextVisibility}}" />
+                            <TextBlock Grid.Column="0" Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Path=Error}" TextWrapping="Wrap"
+                                       Visibility="{Binding Path=Error, Converter={StaticResource WinShellTextVisibility}}" />
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>

@@ -21,7 +21,7 @@ public sealed class TunnelSessionFactory(ISshSessionFactory sshFactory, TunnelAd
     }
     private sealed class AdmittedTunnel(ITunnelSession session, IDisposable admission) : ITunnelSession
     {
-        private readonly object _gate = new(); private Task? _close;
+        private readonly Lock _gate = new(); private Task? _close;
         public TunnelDefinition Definition => session.Definition;
         public ushort BoundPort => session.BoundPort;
         public TunnelSnapshot Snapshot => session.Snapshot;

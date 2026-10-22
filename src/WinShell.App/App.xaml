@@ -26,6 +26,8 @@
             <Style x:Key="WinShellPageTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource SubtitleTextBlockStyle}">
                 <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
+            <!-- Defined by Microsoft.WindowsAppSDK.WinUI 2.3.9 Themes/generic.xaml and loaded above. -->
+            <!-- ReSharper disable once Xaml.StaticResourceNotResolved -->
             <Style x:Key="WinShellSectionTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}" />
             <Style x:Key="WinShellPageDescriptionStyle" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />

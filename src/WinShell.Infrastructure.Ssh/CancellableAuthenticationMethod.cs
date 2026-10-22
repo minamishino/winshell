@@ -10,9 +10,9 @@ internal sealed class CancellableAuthenticationMethod(AuthenticationMethod inner
 
     public override AuthenticationResult Authenticate(Session session)
     {
-        Task disconnectTask = Task.CompletedTask;
+        var disconnectTask = Task.CompletedTask;
         Exception? authenticationFailure = null;
-        using var registration = cancellationToken.Register(() => disconnectTask = Task.Run(session.Disconnect));
+        var registration = cancellationToken.Register(() => disconnectTask = Task.Run(session.Disconnect));
         try
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -4,6 +4,7 @@
     <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
     <SupportedOSPlatformVersion>10.0.19045.0</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.Core" />

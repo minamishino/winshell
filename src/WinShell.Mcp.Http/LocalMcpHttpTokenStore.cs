@@ -118,10 +118,9 @@ public sealed class LocalMcpHttpTokenStore
         {
             await file.ReadExactlyAsync(encrypted, token).ConfigureAwait(false);
             if (await file.ReadAsync(new byte[1], token).ConfigureAwait(false) != 0 || !encrypted.AsSpan(0, Magic.Length).SequenceEqual(Magic)) throw new InvalidDataException("token_store_invalid");
-            try { plaintext = ProtectedData.Unprotect(encrypted.AsSpan(Magic.Length).ToArray(), null, DataProtectionScope.CurrentUser); }
+            try { plaintext = ProtectedData.Unprotect([.. encrypted.AsSpan(Magic.Length)], null, DataProtectionScope.CurrentUser); }
             catch (CryptographicException error) { throw new InvalidDataException("token_store_invalid", error); }
-            if (plaintext.Length != 32) throw new InvalidDataException("token_store_invalid");
-            return new CredentialSecret(plaintext);
+            return plaintext.Length == 32 ? new CredentialSecret(plaintext) : throw new InvalidDataException("token_store_invalid");
         }
         finally { CryptographicOperations.ZeroMemory(encrypted); if (plaintext is not null) CryptographicOperations.ZeroMemory(plaintext); }
     }
@@ -152,7 +151,10 @@ public sealed class LocalMcpHttpTokenStore
         catch { file.Dispose(); throw; }
     }
     private static SecurityIdentifier CurrentUser()
-    { using var identity = WindowsIdentity.GetCurrent(); return identity.User ?? throw new UnauthorizedAccessException("token_store_denied"); }
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.User ?? throw new UnauthorizedAccessException("token_store_denied");
+    }
     private static void PrivateFile(string path)
     {
         var security = new FileSecurity(); security.SetAccessRuleProtection(true, false);

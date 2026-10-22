@@ -15,9 +15,9 @@ internal static class FtpPathPolicy
     internal static string RemotePath(string path)
     {
         CommandValue(SftpPathPolicy.RemotePath(path));
-        if (!string.Equals(path, SanitizerModule.SanitizeSlashes(path), StringComparison.Ordinal))
-            throw new ArgumentException("FTP 路径会被协议组件改写；请去掉首尾空白、重复斜线或反斜线。");
-        return path;
+        return string.Equals(path, SanitizerModule.SanitizeSlashes(path), StringComparison.Ordinal)
+            ? path
+            : throw new ArgumentException("FTP 路径会被协议组件改写；请去掉首尾空白、重复斜线或反斜线。");
     }
     internal static string Child(string directory, string name) => RemotePath(SftpPathPolicy.RemoteChild(RemotePath(directory), CommandValue(name)));
 }

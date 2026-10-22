@@ -38,30 +38,35 @@ public sealed class SshSessionFactory : ISshSessionFactory
     {
         cancellationToken.ThrowIfCancellationRequested();
         var lease = _budget.AdmitConnection();
-        var transferred = false;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(_timeout);
-
-        try
+        // The library includes synchronous key parsing and disconnect paths; the worker owns
+        // the deadline and admission until they are released or transferred to the session.
+        return await Task.Run(async () =>
         {
-            using var handshake = await _budget.EnterHandshakeAsync(deadline.Token).ConfigureAwait(false);
-
-            // The library includes synchronous key parsing and disconnect paths; never enter them on the UI thread.
-            var result = await Task.Run(() => ConnectCoreAsync(profile, lease, deadline.Token), CancellationToken.None).ConfigureAwait(false);
-            transferred = result is SshConnectResult.Connected;
-            return result;
-        }
-        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new SshConnectionException(SshFailureKind.Timeout, "SSH 连接超时。", error);
-        }
-        finally
-        {
-            if (!transferred) lease.Dispose();
-        }
+            using (deadline)
+            {
+                var transferred = false;
+                try
+                {
+                    using var handshake = await _budget.EnterHandshakeAsync(deadline.Token).ConfigureAwait(false);
+                    var result = await ConnectCoreAsync(profile, lease, deadline.Token).ConfigureAwait(false);
+                    transferred = result is SshConnectResult.Connected;
+                    return result;
+                }
+                catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new SshConnectionException(SshFailureKind.Timeout, "SSH 连接超时。", error);
+                }
+                finally
+                {
+                    if (!transferred) lease.Dispose();
+                }
+            }
+        }, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private async Task<SshConnectResult> ConnectCoreAsync(ConnectionProfile profile, IDisposable lease, CancellationToken cancellationToken)
+    private async Task<SshConnectResult> ConnectCoreAsync(ConnectionProfile? profile, IDisposable lease, CancellationToken cancellationToken)
     {
         if (profile is null || ConnectionProfileValidator.Validate(profile).Count != 0 || profile.Protocol != ConnectionProtocol.Ssh)
             throw new SshConnectionException(SshFailureKind.InvalidProfile, "SSH 连接配置无效。");
@@ -126,10 +131,10 @@ public sealed class SshSessionFactory : ISshSessionFactory
 
     internal static SshConnectionException Classify(Exception error) => error as SshConnectionException ?? error switch
     {
-        SshAuthenticationException => new(SshFailureKind.Authentication, "SSH 认证失败，请检查用户名和凭据。", error),
-        SshOperationTimeoutException or TimeoutException => new(SshFailureKind.Timeout, "SSH 连接超时。", error),
-        SocketException or IOException => new(SshFailureKind.Network, "SSH 网络连接已中断。", error),
-        Renci.SshNet.Common.SshConnectionException => new(SshFailureKind.Network, "SSH 网络连接已中断。", error),
-        _ => new(SshFailureKind.Protocol, "SSH 协议操作失败。", error)
+        SshAuthenticationException => new SshConnectionException(SshFailureKind.Authentication, "SSH 认证失败，请检查用户名和凭据。", error),
+        SshOperationTimeoutException or TimeoutException => new SshConnectionException(SshFailureKind.Timeout, "SSH 连接超时。", error),
+        SocketException or IOException => new SshConnectionException(SshFailureKind.Network, "SSH 网络连接已中断。", error),
+        Renci.SshNet.Common.SshConnectionException => new SshConnectionException(SshFailureKind.Network, "SSH 网络连接已中断。", error),
+        _ => new SshConnectionException(SshFailureKind.Protocol, "SSH 协议操作失败。", error)
     };
 }

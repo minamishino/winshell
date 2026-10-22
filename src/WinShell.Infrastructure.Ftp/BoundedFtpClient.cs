@@ -73,7 +73,7 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         {
             await base.Connect(reConnect, token).ConfigureAwait(false);
         }
-        finally { AuthenticationToken = default; }
+        finally { AuthenticationToken = CancellationToken.None; }
     }
     private static void StrictCertificate(FtpSocketStream stream, FtpSslValidationEventArgs args) => args.Accept = args.PolicyErrors == SslPolicyErrors.None;
     protected override async Task ConnectAsync(FtpSocketStream stream, string host, int port, FtpIpVersion ipVersions, CancellationToken token)
@@ -111,7 +111,7 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         {
             stream = await OpenDataStreamAsync(command, 0, deadline.Token).ConfigureAwait(false);
         }
-        finally { AuthenticationToken = default; }
+        finally { AuthenticationToken = CancellationToken.None; }
         _dataHandshake?.Dispose();
         _dataHandshake = null;
         return stream;
@@ -144,7 +144,7 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         catch (Exception error) { errors.Add(error); }
         try
         {
-            Dispose();
+            await DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception error) { errors.Add(error); }
         _dataHandshake?.Dispose();
@@ -190,7 +190,9 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         }
         private int CountRead(int read, int requested)
         {
-            if (read == 0 && requested != 0)
+            if (requested == 0)
+                return read;
+            if (read == 0)
                 throw new EndOfStreamException("FTP 控制连接已断开。");
             _read += read;
             return read;
@@ -199,9 +201,7 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         {
             if (count == 0)
                 return 0;
-            if (_read >= 65536)
-                throw new IOException("FTP 控制应答超过 64 KiB 限额。");
-            return Math.Min(count, 65536 - _read);
+            return _read < 65536 ? Math.Min(count, 65536 - _read) : throw new IOException("FTP 控制应答超过 64 KiB 限额。");
         }
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -215,7 +215,7 @@ internal sealed class BoundedFtpClient : AsyncFtpClient
         }
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
-            var read = await base.ReadAsync(buffer, offset, Reserve(count), token).ConfigureAwait(false);
+            var read = await base.ReadAsync(buffer.AsMemory(offset, Reserve(count)), token).ConfigureAwait(false);
             return CountRead(read, count);
         }
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token)

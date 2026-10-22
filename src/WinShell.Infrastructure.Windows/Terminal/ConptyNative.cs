@@ -5,9 +5,14 @@ using Microsoft.Win32.SafeHandles;
 
 namespace WinShell.Infrastructure.Windows.Terminal;
 
-internal static class ConptyNative
+internal static partial class ConptyNative
 {
-    [StructLayout(LayoutKind.Sequential)] internal readonly record struct Coord(short X, short Y);
+    [StructLayout(LayoutKind.Sequential)]
+    internal readonly struct Coord(short x, short y)
+    {
+        public readonly short X = x;
+        public readonly short Y = y;
+    }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct StartupInfo
     {
@@ -29,19 +34,24 @@ internal static class ConptyNative
         public ThreadHandle(nint value) : base(true) { SetHandle(value); }
         protected override bool ReleaseHandle() => CloseHandle(handle);
     }
-    [DllImport("conpty.dll", ExactSpelling = true)] internal static extern int ConptyCreatePseudoConsole(Coord size, SafePipeHandle input, SafePipeHandle output, uint flags, out PseudoConsoleHandle console);
-    [DllImport("conpty.dll", ExactSpelling = true)] internal static extern int ConptyResizePseudoConsole(PseudoConsoleHandle console, Coord size);
-    [DllImport("conpty.dll", ExactSpelling = true)] internal static extern int ConptyReleasePseudoConsole(PseudoConsoleHandle console);
-    [DllImport("conpty.dll", ExactSpelling = true)] private static extern void ConptyClosePseudoConsole(nint console);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool InitializeProcThreadAttributeList(nint list, int count, uint flags, ref nuint size);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool UpdateProcThreadAttribute(nint list, uint flags, nuint attribute, nint value, nuint size, nint previousValue, nint returnSize);
-    [DllImport("kernel32.dll")] private static extern void DeleteProcThreadAttributeList(nint list);
+    [LibraryImport("conpty.dll")] internal static partial int ConptyCreatePseudoConsole(Coord size, SafePipeHandle input, SafePipeHandle output, uint flags, out PseudoConsoleHandle console);
+    [LibraryImport("conpty.dll")] internal static partial int ConptyResizePseudoConsole(PseudoConsoleHandle console, Coord size);
+    [LibraryImport("conpty.dll")] internal static partial int ConptyReleasePseudoConsole(PseudoConsoleHandle console);
+    [LibraryImport("conpty.dll")] private static partial void ConptyClosePseudoConsole(nint console);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool InitializeProcThreadAttributeList(nint list, int count, uint flags, ref nuint size);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool UpdateProcThreadAttribute(nint list, uint flags, nuint attribute, nint value, nuint size, nint previousValue, nint returnSize);
+    [LibraryImport("kernel32.dll")] private static partial void DeleteProcThreadAttributeList(nint list);
     [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool CreateProcess(string applicationName, StringBuilder commandLine, nint processAttributes, nint threadAttributes, bool inheritHandles, uint flags, nint environment, string? directory, ref StartupInfoEx startupInfo, out ProcessInformation information);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CloseHandle(nint handle);
-    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool TerminateProcess(SafeProcessHandle process, uint exitCode);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForSingleObject(SafeProcessHandle handle, uint milliseconds);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetExitCodeProcess(SafeProcessHandle process, out uint exitCode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool CloseHandle(nint handle);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] internal static partial bool TerminateProcess(SafeProcessHandle process, uint exitCode);
+    [LibraryImport("kernel32.dll", SetLastError = true)] private static partial uint WaitForSingleObject(SafeProcessHandle handle, uint milliseconds);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static partial bool GetExitCodeProcess(SafeProcessHandle process, out uint exitCode);
     public static (SafeProcessHandle Handle, int Id) Start(string executable, StringBuilder commandLine, string? directory, PseudoConsoleHandle console)
     {
         nuint size = 0;

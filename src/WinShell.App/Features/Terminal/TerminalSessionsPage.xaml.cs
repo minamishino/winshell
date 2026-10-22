@@ -14,11 +14,10 @@ using WinShell.Core.Settings;
 
 namespace WinShell.App.Features.Terminal;
 
-public sealed partial class TerminalSessionsPage : Page
+public sealed partial class TerminalSessionsPage
 {
     private readonly RendererJob _job = new();
     private readonly LocalShellSessionFactory _local = new();
-    private readonly WslDistributionReader _wsl = new();
     private readonly NativeDialogService _dialogs;
     private readonly SettingsViewModel _settings;
     private readonly AppBarButton _defaultTerminalCommand;
@@ -39,7 +38,7 @@ public sealed partial class TerminalSessionsPage : Page
     {
         _dialogs = dialogs;
         _settings = settings;
-        ViewModel = new(factory, hosts, (challenge, token) => _dialogs.ConfirmAsync(XamlRoot, "确认 SSH 主机公钥",
+        ViewModel = new TerminalSessionsViewModel(factory, hosts, (challenge, token) => _dialogs.ConfirmAsync(XamlRoot, "确认 SSH 主机公钥",
             $"主机：{challenge.Endpoint.Host}:{challenge.Endpoint.Port}\n公钥类型：{challenge.Key.Algorithm}\n完整指纹：{challenge.Key.Fingerprint}\n\n尚未认证，请通过可信渠道核实后再信任。", "信任并连接", token), profiles);
         InitializeComponent(); DataContext = ViewModel;
         ViewModel.PropertyChanged += Terminal_PropertyChanged;
@@ -59,10 +58,23 @@ public sealed partial class TerminalSessionsPage : Page
         if (_closing || args.PropertyName != nameof(SettingsViewModel.Settings)) return;
         foreach (var control in _controls.Values) control.ApplyPreferences(_settings.Settings.Terminal);
     }
-    private async void DefaultTerminal_Click(object sender, RoutedEventArgs args) => await OpenLocalAsync(
-        _settings.Settings.DefaultShell == DefaultShell.Wsl
-            ? new LocalShellLaunchRequest.Wsl(new WslDistribution(_settings.Settings.WslDistribution))
-            : new LocalShellLaunchRequest.PowerShell());
+    private async void DefaultTerminal_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            await OpenLocalAsync(_settings.Settings.DefaultShell == DefaultShell.Wsl ? new LocalShellLaunchRequest.Wsl(new WslDistribution(_settings.Settings.WslDistribution)) : new LocalShellLaunchRequest.PowerShell());
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private void HideCommandFlyouts()
     {
         foreach (var command in TerminalCommands.PrimaryCommands.Concat(TerminalCommands.SecondaryCommands).OfType<AppBarButton>()) command.Flyout?.Hide();
@@ -108,7 +120,7 @@ public sealed partial class TerminalSessionsPage : Page
                 finally { view.Loaded -= OnLoaded; }
             }
             startup.Token.ThrowIfCancellationRequested();
-            _ = tab.StartAsync(docker is null ? default : startup.Token);
+            _ = tab.StartAsync(docker is null ? CancellationToken.None : startup.Token);
             UpdatePresentation();
         }
         catch (Exception initial)
@@ -182,20 +194,113 @@ public sealed partial class TerminalSessionsPage : Page
         finally { _actions.Remove(completion.Task); completion.TrySetResult(); }
     }
     private async void PowerShell_Click(object sender, RoutedEventArgs args)
-    { HideCommandFlyouts(); await OpenLocalAsync(new LocalShellLaunchRequest.PowerShell()); }
+    {
+        try
+        {
+            HideCommandFlyouts();
+            await OpenLocalAsync(new LocalShellLaunchRequest.PowerShell());
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private async void Wsl_Click(object sender, RoutedEventArgs args)
-    { if (Distributions.SelectedItem is WslDistribution distribution) { HideCommandFlyouts(); await OpenLocalAsync(new LocalShellLaunchRequest.Wsl(distribution)); } else Feedback.Text = "请先刷新并选择 WSL 发行版。"; }
+    {
+        try
+        {
+            if (Distributions.SelectedItem is WslDistribution distribution)
+            {
+                HideCommandFlyouts();
+                await OpenLocalAsync(new LocalShellLaunchRequest.Wsl(distribution));
+            }
+            else
+                Feedback.Text = "请先刷新并选择 WSL 发行版。";
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private async void RefreshWsl_Click(object sender, RoutedEventArgs args)
     {
-        if (_refreshingWsl) return;
-        _refreshingWsl = true;
-        try { await RunActionAsync(async () => { Distributions.ItemsSource = await _wsl.ReadAsync(_stop.Token); Feedback.Text = "WSL 列表已更新。"; }); }
-        finally { _refreshingWsl = false; }
+        try
+        {
+            if (_refreshingWsl)
+                return;
+            _refreshingWsl = true;
+            try
+            {
+                await RunActionAsync(async () =>
+                {
+                    Distributions.ItemsSource = await WslDistributionReader.ReadAsync(_stop.Token);
+                    Feedback.Text = "WSL 列表已更新。";
+                });
+            }
+            finally
+            {
+                _refreshingWsl = false;
+            }
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
     }
     private async void Close_Click(object sender, RoutedEventArgs args)
-    { if (ViewModel.SelectedTab is { } tab) await RunActionAsync(() => CloseUserTabAsync(tab)); }
+    {
+        try
+        {
+            if (ViewModel.SelectedTab is { } tab)
+                await RunActionAsync(() => CloseUserTabAsync(tab));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private async void Tabs_CloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
-    { if (args.Item is TerminalTabViewModel tab) await RunActionAsync(() => CloseUserTabAsync(tab)); }
+    {
+        try
+        {
+            if (args.Item is TerminalTabViewModel tab)
+                await RunActionAsync(() => CloseUserTabAsync(tab));
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private async Task CloseUserTabAsync(TerminalTabViewModel tab)
     {
         if (_settings.Settings.ConfirmTabClose && !tab.IsClosing &&
@@ -205,30 +310,92 @@ public sealed partial class TerminalSessionsPage : Page
     private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs args) => UpdatePresentation();
     private async void Reconnect_Click(object sender, RoutedEventArgs args)
     {
-        if (ViewModel.SelectedTab is not { } tab) return;
-        _localRequests.TryGetValue(tab, out var local);
-        _dockerRequests.TryGetValue(tab, out var docker);
-        await RunActionAsync(async () =>
+        try
         {
-            await CloseTabAsync(tab);
-            if (_closing) return;
-            if (tab.Profile is { } profile) await ViewModel.ValidateSavedProfileAsync(profile, _stop.Token);
-            await OpenAsync(tab.Title, tab.Profile, local, docker);
-        });
+            if (ViewModel.SelectedTab is not { } tab)
+                return;
+            _localRequests.TryGetValue(tab, out var local);
+            _dockerRequests.TryGetValue(tab, out var docker);
+            await RunActionAsync(async () =>
+            {
+                await CloseTabAsync(tab);
+                if (_closing)
+                    return;
+                if (tab.Profile is { } profile)
+                    await ViewModel.ValidateSavedProfileAsync(profile, _stop.Token);
+                await OpenAsync(tab.Title, tab.Profile, local, docker);
+            });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
     }
-    private async void Copy_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
+    private async void Copy_Click(object sender, RoutedEventArgs args)
     {
-        if (ViewModel.SelectedTab?.IsClosing == true) { Feedback.Text = "终端已结束，请在保留的诊断文本中选择并复制。"; return; }
-        if (SelectedControl is not { } control) return;
-        var text = await control.CopySelectionAsync(_stop.Token);
-        var content = new DataPackage(); content.SetText(text); Clipboard.SetContent(content);
-    });
-    private async void Paste_Click(object sender, RoutedEventArgs args) => await RunActionAsync(async () =>
+        try
+        {
+            await RunActionAsync(async () =>
+            {
+                if (ViewModel.SelectedTab?.IsClosing == true)
+                {
+                    Feedback.Text = "终端已结束，请在保留的诊断文本中选择并复制。";
+                    return;
+                }
+
+                if (SelectedControl is not { } control)
+                    return;
+                var text = await control.CopySelectionAsync(_stop.Token);
+                var content = new DataPackage();
+                content.SetText(text);
+                Clipboard.SetContent(content);
+            });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
+    private async void Paste_Click(object sender, RoutedEventArgs args)
     {
-        if (ViewModel.SelectedTab?.IsClosing == true) { Feedback.Text = "终端已结束，请重新连接后再粘贴。"; return; }
-        if (SelectedControl is not { } control) return;
-        await PasteTextAsync(control, ViewModel.SelectedTab, TerminalClipboard.ReadBoundedText());
-    });
+        try
+        {
+            await RunActionAsync(async () =>
+            {
+                if (ViewModel.SelectedTab?.IsClosing == true)
+                {
+                    Feedback.Text = "终端已结束，请重新连接后再粘贴。";
+                    return;
+                }
+
+                if (SelectedControl is not { } control)
+                    return;
+                await PasteTextAsync(control, ViewModel.SelectedTab, TerminalClipboard.ReadBoundedText());
+            });
+        }
+        catch (Exception error)
+        {
+            if (_closing)
+            {
+                if (_shutdownFailures.Count < 8)
+                    _shutdownFailures.Add(error);
+            }
+            else
+                Feedback.Text = "终端页面操作未能完成，请重试。";
+        }
+    }
     private async Task PasteTextAsync(NativeTerminalControl control, TerminalTabViewModel? tab, string text)
     {
         // Check the same budget before displaying a dialog, including developer fixture input.

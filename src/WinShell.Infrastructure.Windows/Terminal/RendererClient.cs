@@ -10,7 +10,7 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
     private RendererFrameCodec? _writer, _reader;
     private readonly SemaphoreSlim _serial = new(1);
     private readonly SemaphoreSlim _writeSerial = new(1);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private Task? _read, _close, _start, _monitor;
     private readonly List<Task> _inputs = [];
@@ -32,19 +32,22 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
     public async Task<string> CopySelectionAsync(CancellationToken token)
     {
         var result = await RequestAsync(RendererFrameType.Copy, default, token).ConfigureAwait(false);
-        if (result.Type != RendererFrameType.Selection) throw new InvalidDataException("Expected bounded selection.");
-        return new System.Text.UTF8Encoding(false, true).GetString(result.Payload.Span);
+        return result.Type == RendererFrameType.Selection
+            ? new System.Text.UTF8Encoding(false, true).GetString(result.Payload.Span)
+            : throw new InvalidDataException("Expected bounded selection.");
     }
     public async Task SetThemeAsync(bool dark, int dpi, CancellationToken token)
     {
-        var bytes = new byte[5]; bytes[0] = dark ? (byte)1 : (byte)0; BitConverter.TryWriteBytes(bytes.AsSpan(1), dpi);
+        var bytes = new byte[5];
+        bytes[0] = dark ? (byte)1 : (byte)0;
+        BitConverter.TryWriteBytes(bytes.AsSpan(1), dpi);
         await RequestAsync(RendererFrameType.Theme, bytes, token).ConfigureAwait(false);
     }
     public async Task SetThemeAsync(bool dark, int dpi, uint backgroundColor, uint foregroundColor, CancellationToken token)
     {
         if (dpi is < 96 or > 960) throw new ArgumentOutOfRangeException(nameof(dpi));
-        if (backgroundColor > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(backgroundColor));
-        if (foregroundColor > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(foregroundColor));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(backgroundColor, 0xFFFFFFu);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(foregroundColor, 0xFFFFFFu);
         var bytes = new byte[13];
         bytes[0] = dark ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(1), dpi);
@@ -63,15 +66,18 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
     public async Task CompleteOutputAsync(CancellationToken cancellationToken) => await RequestAsync(RendererFrameType.CompleteOutput, default, cancellationToken).ConfigureAwait(false);
     public async Task<(ushort Columns, ushort Rows)> ResizeAsync(int width, int height, CancellationToken cancellationToken)
     {
-        var bytes = new byte[8]; BitConverter.TryWriteBytes(bytes.AsSpan(), width); BitConverter.TryWriteBytes(bytes.AsSpan(4), height);
+        var bytes = new byte[8];
+        BitConverter.TryWriteBytes(bytes.AsSpan(), width);
+        BitConverter.TryWriteBytes(bytes.AsSpan(4), height);
         var result = await RequestAsync(RendererFrameType.Resize, bytes, cancellationToken).ConfigureAwait(false);
         if (result.Type != RendererFrameType.Size || result.Payload.Length != 8) throw new InvalidDataException("Expected actual native size.");
-        var columns = BitConverter.ToInt32(result.Payload.Span); var rows = BitConverter.ToInt32(result.Payload.Span[4..]);
+        var columns = BitConverter.ToInt32(result.Payload.Span);
+        var rows = BitConverter.ToInt32(result.Payload.Span[4..]);
         if (columns is < 1 or > 400 || rows is < 1 or > 160) throw new InvalidDataException("Viewport outside budget.");
         return (checked((ushort)columns), checked((ushort)rows));
     }
-    public async Task SetFocusedAsync(bool focused, CancellationToken token) => await RequestAsync(RendererFrameType.Focus, new byte[] { focused ? (byte)1 : (byte)0 }, token).ConfigureAwait(false);
-    public async Task SetVisibleAsync(bool visible, CancellationToken token) => await RequestAsync(RendererFrameType.Visibility, new byte[] { visible ? (byte)1 : (byte)0 }, token).ConfigureAwait(false);
+    public async Task SetFocusedAsync(bool focused, CancellationToken token) => await RequestAsync(RendererFrameType.Focus, new[] { focused ? (byte)1 : (byte)0 }, token).ConfigureAwait(false);
+    public async Task SetVisibleAsync(bool visible, CancellationToken token) => await RequestAsync(RendererFrameType.Visibility, new[] { visible ? (byte)1 : (byte)0 }, token).ConfigureAwait(false);
     public async Task StartAsync(nint parentWindow, CancellationToken cancellationToken)
     {
         Task start;
@@ -97,8 +103,9 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
         try
         {
             _owner = await RendererProcessOwner.StartAsync(job, executable, ["--renderer"], deadline.Token).ConfigureAwait(false);
-            _writer = new(_owner.Input); _reader = new(_owner.Output);
-            _read = Task.Run(ReadAsync);
+            _writer = new RendererFrameCodec(_owner.Input);
+            _reader = new RendererFrameCodec(_owner.Output);
+            _read = Task.Run(ReadAsync, CancellationToken.None);
             _monitor = MonitorAsync();
             var reply = await RequestAsync(RendererFrameType.Initialize, BitConverter.GetBytes(parentWindow.ToInt64()), deadline.Token).ConfigureAwait(false);
             if (reply.Type != RendererFrameType.Ready || reply.Payload.Length != 8) throw new InvalidDataException("Expected renderer HWND.");
@@ -140,7 +147,7 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var reply = _reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reply = _reply = new TaskCompletionSource<RendererFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
             RendererFrame response;
             try
             {
@@ -152,12 +159,10 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
             }
             catch (Exception error)
             {
-                if (!_stop.IsCancellationRequested)
-                {
-                    Fail(error);
-                    // Close joins this request; never await it from the request itself.
-                    _ = CloseAsync(CancellationToken.None);
-                }
+                if (_stop.IsCancellationRequested) throw;
+                Fail(error);
+                // Close joins this request; never await it from the request itself.
+                _ = CloseAsync(CancellationToken.None);
                 throw;
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -172,22 +177,25 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
             while (!_stop.IsCancellationRequested)
             {
                 var frame = await _reader!.ReadAsync(_stop.Token).ConfigureAwait(false);
-                if (frame.Type == RendererFrameType.Input)
+                switch (frame)
                 {
-                    lock (_gate)
-                    {
-                        _inputs.RemoveAll(task => task.IsCompletedSuccessfully);
-                        if (_inputs.Count >= 4) throw new InvalidDataException("Renderer input budget exceeded.");
-                        _inputs.Add(ConsumeInputAsync(frame.Payload));
-                    }
+                    case { Type: RendererFrameType.Input }:
+                        lock (_gate)
+                        {
+                            _inputs.RemoveAll(task => task.IsCompletedSuccessfully);
+                            if (_inputs.Count >= 4) throw new InvalidDataException("Renderer input budget exceeded.");
+                            _inputs.Add(ConsumeInputAsync(frame.Payload));
+                        }
+                        break;
+                    case { Type: RendererFrameType.ScrollState }:
+                        if (frame.Payload.Length != 12) throw new InvalidDataException("Invalid scroll state.");
+                        ScrollChanged?.Invoke(this, (BitConverter.ToInt32(frame.Payload.Span), BitConverter.ToInt32(frame.Payload.Span[4..]), BitConverter.ToInt32(frame.Payload.Span[8..])));
+                        break;
+                    default:
+                        if (_reply is not { } reply) throw new InvalidDataException("Unexpected renderer reply.");
+                        reply.TrySetResult(frame);
+                        break;
                 }
-                else if (frame.Type == RendererFrameType.ScrollState)
-                {
-                    if (frame.Payload.Length != 12) throw new InvalidDataException("Invalid scroll state.");
-                    ScrollChanged?.Invoke(this, (BitConverter.ToInt32(frame.Payload.Span), BitConverter.ToInt32(frame.Payload.Span[4..]), BitConverter.ToInt32(frame.Payload.Span[8..])));
-                }
-                else if (_reply is { } reply) reply.TrySetResult(frame);
-                else throw new InvalidDataException("Unexpected renderer reply.");
             }
         }
         catch (Exception error)
@@ -204,14 +212,14 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
             cancellationToken.ThrowIfCancellationRequested();
             _closing = true;
             _stop.Cancel();
-            _reply?.TrySetCanceled();
-            return _close = Task.Run(CloseCoreAsync);
+            _reply?.TrySetCanceled(CancellationToken.None);
+            return _close = Task.Run(CloseCoreAsync, CancellationToken.None);
         }
     }
     private async Task CloseCoreAsync()
     {
-        _stop.Cancel();
-        _reply?.TrySetCanceled();
+        await _stop.CancelAsync().ConfigureAwait(false);
+        _reply?.TrySetCanceled(CancellationToken.None);
         if (_start is not null) { try { await _start.ConfigureAwait(false); } catch (Exception error) { Fail(error); } }
         if (_owner is null) { _serial.Dispose(); _writeSerial.Dispose(); _stop.Dispose(); return; }
         try
@@ -237,10 +245,10 @@ public sealed class RendererClient(RendererJob job, string executable) : IAsyncD
                 if (_read is not null) await _read.ConfigureAwait(false);
                 if (_monitor is not null) await _monitor.ConfigureAwait(false);
                 Task[] inputs;
-                lock (_gate) inputs = _inputs.ToArray();
+                lock (_gate) inputs = [.. _inputs];
                 await Task.WhenAll(inputs).ConfigureAwait(false);
                 Task<RendererFrame>[] requests;
-                lock (_gate) requests = _requests.ToArray();
+                lock (_gate) requests = [.. _requests];
                 foreach (var request in requests)
                 {
                     try { await request.ConfigureAwait(false); }

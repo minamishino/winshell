@@ -2,18 +2,24 @@
     x:Class="WinShell.App.Features.Connections.ConnectionProfileEditorDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WinShell.App.Features.Connections"
+    mc:Ignorable="d"
     PrimaryButtonText="保存连接" CloseButtonText="取消" DefaultButton="Primary"
     PrimaryButtonClick="Save_Click" Closing="Dialog_Closing" Closed="Dialog_Closed" Opened="Dialog_Opened">
     <ContentDialog.Resources>
+        <!-- Consumed by the platform ContentDialog template through ThemeResource lookup. -->
+        <!-- ReSharper disable once Xaml.RedundantResource -->
         <x:Double x:Key="ContentDialogMaxWidth">720</x:Double>
     </ContentDialog.Resources>
     <ScrollViewer x:Name="EditorScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-        <StackPanel x:Name="EditorPanel" Spacing="16" SizeChanged="EditorPanel_SizeChanged">
+        <StackPanel x:Name="EditorPanel" d:DataContext="{d:DesignInstance Type=vm:ConnectionProfileEditorViewModel, IsDesignTimeCreatable=False}" Spacing="16" SizeChanged="EditorPanel_SizeChanged">
             <Grid x:Name="IdentityFields" ColumnSpacing="16" RowSpacing="12">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <TextBox x:Name="DisplayNameInput" Header="连接名称" AutomationProperties.Name="连接名称" MaxLength="128" Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                <TextBox x:Name="GroupInput" Grid.Column="1" Header="分组" AutomationProperties.Name="分组" PlaceholderText="未分组" MaxLength="128" Text="{Binding GroupName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox x:Name="DisplayNameInput" Header="连接名称" AutomationProperties.Name="连接名称" MaxLength="128" Text="{Binding Path=DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Row="0" x:Name="GroupInput" Grid.Column="1" Header="分组" AutomationProperties.Name="分组" PlaceholderText="未分组" MaxLength="128" Text="{Binding Path=GroupName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
             <TextBlock Text="连接信息" Style="{StaticResource WinShellSectionTitleStyle}" Margin="0,8,0,0"/>
             <Grid x:Name="ConnectionFields" ColumnSpacing="16" RowSpacing="12">
@@ -24,12 +30,14 @@
                     <ComboBoxItem x:Name="FtpProtocolItem" Content="FTP"/>
                     <ComboBoxItem x:Name="FtpsProtocolItem" Content="FTPS"/>
                 </ComboBox>
-                <TextBox x:Name="UserNameInput" Grid.Column="1" Header="用户名" AutomationProperties.Name="用户名" MaxLength="128" Text="{Binding UserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Row="0" x:Name="UserNameInput" Grid.Column="1" Header="用户名" AutomationProperties.Name="用户名" MaxLength="128" Text="{Binding Path=UserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="88"/></Grid.ColumnDefinitions>
-                <TextBox x:Name="HostInput" Header="主机" AutomationProperties.Name="主机" PlaceholderText="主机名或 IP 地址" MaxLength="253" Text="{Binding Host, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                <TextBox Grid.Column="1" Header="端口" AutomationProperties.Name="端口" MaxLength="5" InputScope="Number" Text="{Binding PortText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <!-- Used by the runtime UI checks through FindName("HostInput"). -->
+                <!-- ReSharper disable once UnusedMember.Local -->
+                <TextBox x:Name="HostInput" Header="主机" AutomationProperties.Name="主机" PlaceholderText="主机名或 IP 地址" MaxLength="253" Text="{Binding Path=Host, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Column="1" Header="端口" AutomationProperties.Name="端口" MaxLength="5" InputScope="Number" Text="{Binding Path=PortText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
             <ComboBox x:Name="FtpsModeBox" Header="FTPS 模式" AutomationProperties.Name="FTPS 模式" HorizontalAlignment="Stretch" Visibility="Collapsed" SelectionChanged="FtpsMode_Changed">
                 <ComboBoxItem x:Name="ExplicitFtpsItem" Content="显式 TLS（AUTH TLS）"/>
@@ -44,9 +52,9 @@
                     <ComboBoxItem x:Name="PrivateKeyAuthenticationItem" Content="私钥"/>
                     <ComboBoxItem x:Name="AnonymousAuthenticationItem" Content="匿名"/>
                 </ComboBox>
-                <PasswordBox x:Name="SecretInput" Grid.Column="1" Header="密码（可选）" AutomationProperties.Name="密码或私钥口令" MaxLength="2560"/>
+                <PasswordBox Grid.Row="0" x:Name="SecretInput" Grid.Column="1" Header="密码（可选）" AutomationProperties.Name="密码或私钥口令" MaxLength="2560"/>
             </Grid>
-            <TextBox x:Name="PrivateKeyInput" Header="私钥绝对路径" AutomationProperties.Name="私钥绝对路径" Visibility="Collapsed" Text="{Binding PrivateKeyPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox x:Name="PrivateKeyInput" Header="私钥绝对路径" AutomationProperties.Name="私钥绝对路径" Visibility="Collapsed" Text="{Binding Path=PrivateKeyPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             <TextBlock Text="保存连接时一并保存凭据；密码留空时保留已有凭据。" Style="{StaticResource WinShellPageDescriptionStyle}" FontSize="12"/>
             <InfoBar x:Name="SaveError" Severity="Error" IsClosable="False"/>
         </StackPanel>

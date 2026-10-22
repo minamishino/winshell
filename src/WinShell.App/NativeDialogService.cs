@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 namespace WinShell.App;
 
 // One shared instance for the window: WinUI permits only one ContentDialog per XamlRoot.
-public sealed class NativeDialogService : IDisposable
+public sealed partial class NativeDialogService : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     public Action<bool>? PresentationChanged { private get; set; }
@@ -36,7 +36,10 @@ public sealed class NativeDialogService : IDisposable
             themeRoot.ActualThemeChanged += ThemeChanged;
             try
             {
-                using var registration = cancellationToken.Register(() => dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide()));
+                // A direct WinRT instance-method delegate is unwrapped as the dialog's COM object;
+                // retain the managed closure so DispatcherQueue marshals a callback, not ContentDialog.
+                // ReSharper disable once ConvertClosureToMethodGroup
+                await using var registration = cancellationToken.Register(() => dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide()));
                 var result = await dialog.ShowAsync();
                 return cancellationToken.IsCancellationRequested ? ContentDialogResult.None : result;
             }

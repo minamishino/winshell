@@ -18,7 +18,7 @@ using WinShell.App.Features.Files;
 
 namespace WinShell.App;
 
-public sealed partial class MainWindow : Window
+public sealed partial class MainWindow
 {
     private readonly ConnectionProfilesPage _connectionsPage;
     private readonly WorkspaceViewModel _workspace;
@@ -114,8 +114,9 @@ public sealed partial class MainWindow : Window
     }
     private void FocusNavigationPane()
     {
-        var item = Navigation.SelectedItem as NavigationViewItem;
-        if (item is null || item.Visibility != Visibility.Visible || !item.IsEnabled) item = ConnectionsItem;
+        var item = Navigation.SelectedItem is NavigationViewItem { Visibility: Visibility.Visible, IsEnabled: true } selectedItem
+            ? selectedItem
+            : ConnectionsItem;
         item.Focus(FocusState.Keyboard);
     }
     private void HideTerminalFlyouts()
@@ -185,53 +186,75 @@ public sealed partial class MainWindow : Window
 
     private async void Connections_ConnectSshRequested(object? sender, ConnectionProfile profile)
     {
-        if (_closing) return;
-        Navigation.SelectedItem = SshItem;
-        await _terminalPage.ConnectSavedProfileAsync(profile);
+        try
+        {
+            if (_closing) return;
+            Navigation.SelectedItem = SshItem;
+            await _terminalPage.ConnectSavedProfileAsync(profile);
+        }
+        catch (Exception)
+        {
+            Navigation.Header = new TextBlock { Text = "无法打开 SSH 终端，请检查连接状态后重试。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
+        }
     }
 
     private async void Connections_ProfileDeleted(object? sender, Guid profileId)
     {
-        if (_closing) return;
-        _ = _sshPage.CloseProfileAsync(profileId);
-        _ = _terminalPage.CloseProfileAsync(profileId);
-        _ = _filesPage.CloseProfileAsync(profileId);
-        var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
-        if (tab is not null) _ = CloseDetailsAsync(tab.TabId);
-        try {await _tunnelsPage.CloseProfileAsync(profileId);}
-        catch(Exception) { /* The page displays and retains the first cleanup failure for shutdown. */ }
+        try
+        {
+            if (_closing) return;
+            var tab = _workspace.Tabs.FirstOrDefault(item => item.ProfileId == profileId);
+            await Task.WhenAll(_sshPage.CloseProfileAsync(profileId),
+                _terminalPage.CloseProfileAsync(profileId), _filesPage.CloseProfileAsync(profileId),
+                tab is not null ? CloseDetailsAsync(tab.TabId) : Task.CompletedTask,
+                _tunnelsPage.CloseProfileAsync(profileId));
+        }
+        catch (Exception)
+        {
+            Navigation.Header = new TextBlock { Text = "连接已删除，但部分会话清理失败。关闭窗口时会继续清理。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
+        }
     }
 
     private async void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || SettingsHost is null || DockerHost is null || TerminalHost is null) return;
-        var generation = ++_navigationGeneration;
-        var preferredFilesProfileId = _requestedFilesProfileId ?? PreferredProfileId;
-        _requestedFilesProfileId = null;
-        var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
-        var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
-        var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
-        var showSettings = args.IsSettingsSelected;
-        var showTerminal = ReferenceEquals(args.SelectedItem, SshItem);
-        Navigation.IsPaneOpen = false;
-        if (!showTerminal) HideTerminalFlyouts();
-        TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
-        _terminalPage.SetWorkspaceVisible(showTerminal);
-        SettingsHost.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
-        var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
-        var cancelDocker = !_dockerHandoffNavigation ? _dockerPage.ViewModel.CancelPendingAsync() : Task.CompletedTask;
-        DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showSettings || showDocker ? Visibility.Collapsed : Visibility.Visible;
-        SshHost.Visibility = Visibility.Collapsed;
-        WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
-        TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
-        await cancelDocker;
-        if (generation != _navigationGeneration || _closing) return;
-        if (showTunnels && !_closing) await _tunnelsPage.LoadAsync();
-        if (showWorkspace) FocusSelectedTab();
-        if (showFiles && !_closing) await _filesPage.LoadProfilesAsync(preferredFilesProfileId);
-        if (showDocker && !_closing) await _dockerPage.SelectProfileAsync(PreferredProfileId);
+        try
+        {
+            if (ConnectionsHost is null || WorkspaceHost is null || SshHost is null || FilesHost is null || TunnelsHost is null || SettingsHost is null || DockerHost is null || TerminalHost is null) return;
+            var generation = ++_navigationGeneration;
+            var preferredFilesProfileId = _requestedFilesProfileId ?? PreferredProfileId;
+            _requestedFilesProfileId = null;
+            var showWorkspace = ReferenceEquals(args.SelectedItem, WorkspaceItem);
+            var showTunnels = ReferenceEquals(args.SelectedItem, TunnelsItem);
+            var showFiles = ReferenceEquals(args.SelectedItem, FilesItem);
+            var showSettings = args.IsSettingsSelected;
+            var showTerminal = ReferenceEquals(args.SelectedItem, SshItem);
+            Navigation.IsPaneOpen = false;
+            if (!showTerminal) HideTerminalFlyouts();
+            TerminalHost.Visibility = showTerminal ? Visibility.Visible : Visibility.Collapsed;
+            _terminalPage.SetWorkspaceVisible(showTerminal);
+            SettingsHost.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
+            var showDocker = ReferenceEquals(args.SelectedItem, DockerItem);
+            var cancelDocker = !_dockerHandoffNavigation ? _dockerPage.ViewModel.CancelPendingAsync() : Task.CompletedTask;
+            DockerHost.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
+            ConnectionsHost.Visibility = showWorkspace || showTerminal || showFiles || showTunnels || showSettings || showDocker ? Visibility.Collapsed : Visibility.Visible;
+            SshHost.Visibility = Visibility.Collapsed;
+            WorkspaceHost.Visibility = showWorkspace ? Visibility.Visible : Visibility.Collapsed;
+            FilesHost.Visibility = showFiles ? Visibility.Visible : Visibility.Collapsed;
+            TunnelsHost.Visibility = showTunnels ? Visibility.Visible : Visibility.Collapsed;
+            await cancelDocker;
+            if (generation != _navigationGeneration || _closing) return;
+            if (showTunnels && !_closing) await _tunnelsPage.LoadAsync();
+            if (showWorkspace) FocusSelectedTab();
+            if (showFiles && !_closing) await _filesPage.LoadProfilesAsync(preferredFilesProfileId);
+            if (showDocker && !_closing) await _dockerPage.SelectProfileAsync(PreferredProfileId);
+        }
+        catch (Exception)
+        {
+            Navigation.Header = new TextBlock { Text = "页面切换失败，请重试。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
+        }
     }
 
     private void Workspace_PropertyChanged(object? sender, PropertyChangedEventArgs args)
@@ -243,7 +266,15 @@ public sealed partial class MainWindow : Window
 
     private async void DetailsTabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
     {
-        if (!_closing && args.Item is ProfileTabViewModel tab) await CloseDetailsAsync(tab.TabId);
+        try
+        {
+            if (!_closing && args.Item is ProfileTabViewModel tab) await CloseDetailsAsync(tab.TabId);
+        }
+        catch (Exception)
+        {
+            Navigation.Header = new TextBlock { Text = "关闭详情标签失败，请重试。", TextWrapping = TextWrapping.Wrap };
+            Navigation.AlwaysShowHeader = true;
+        }
     }
 
     private async Task CloseDetailsAsync(Guid tabId)
@@ -287,7 +318,7 @@ public sealed partial class MainWindow : Window
 
     private void DetailTab_Loaded(object sender, RoutedEventArgs args)
     {
-        if (sender is not TabViewItem tab || tab.DataContext is not ProfileTabViewModel viewModel) return;
+        if (sender is not TabViewItem { DataContext: ProfileTabViewModel viewModel } tab) return;
         // Keep the platform template, but give its native close button a profile-specific name.
         SetCloseButtonName(tab, $"关闭详情标签：{viewModel.Title}");
         if (ReferenceEquals(_workspace.SelectedTab, viewModel)) FocusSelectedTab();
@@ -321,12 +352,12 @@ public sealed partial class MainWindow : Window
 
     private async void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        if (_closeReady) return;
-        args.Cancel = true;
-        if (_closing) return;
-        _closing = true;
         try
         {
+            if (_closeReady) return;
+            args.Cancel = true;
+            if (_closing) return;
+            _closing = true;
             if (_shutdownAsync is not null) await _shutdownAsync();
             _closeReady = true;
             AppWindow.Closing -= Window_Closing;

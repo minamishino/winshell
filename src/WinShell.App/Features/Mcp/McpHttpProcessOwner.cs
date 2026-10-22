@@ -17,7 +17,7 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
         internal bool SeenReady, Stopping, Forced, Joined;
         internal string? Failure;
     }
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private Session? _session;
     private McpHttpProcessState _state;
     private string? _endpoint;
@@ -26,7 +26,7 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
     public event Action? Changed;
     public McpHttpProcessSnapshot Snapshot
     {
-        get { lock (_sync) return new(_state, _endpoint, _session?.ProcessId, _session?.Failure, _session?.Forced ?? false, _session?.Joined ?? true); }
+        get { lock (_sync) return new McpHttpProcessSnapshot(_state, _endpoint, _session?.ProcessId, _session?.Failure, _session?.Forced ?? false, _session?.Joined ?? true); }
     }
     public static ProcessStartInfo DeploymentStartInfo(string applicationDirectory, McpServiceSettings settings)
     {
@@ -53,17 +53,20 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
             var start = createStartInfo(settings);
             if (start.UseShellExecute || !start.RedirectStandardInput || !start.RedirectStandardOutput || !start.RedirectStandardError)
                 throw new ArgumentException("owned_pipe_configuration_required");
-            session = new(new Process { StartInfo = start }, settings); _session = session; _endpoint = null; _state = McpHttpProcessState.Starting;
+            session = new Session(new Process { StartInfo = start }, settings); _session = session; _endpoint = null; _state = McpHttpProcessState.Starting;
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!session.Process.Start()) throw new IOException("child_start_failed");
                 session.ProcessId = session.Process.Id;
-                session.Exit = session.Process.WaitForExitAsync();
+                session.Exit = session.Process.WaitForExitAsync(CancellationToken.None);
                 // Readers cannot call back through _sync before all owned join tasks are recorded.
-                session.Output = Task.Run(() => ReadAsync(session, session.Process.StandardOutput.BaseStream, false));
-                session.Error = Task.Run(() => ReadAsync(session, session.Process.StandardError.BaseStream, true));
-                session.Join = Task.Run(() => JoinAsync(session));
+                // Startup cancellation must not skip pipe draining or the owned process join.
+                var output = session.Process.StandardOutput.BaseStream;
+                var errorOutput = session.Process.StandardError.BaseStream;
+                session.Output = Task.Run(() => ReadAsync(session, output, false), CancellationToken.None);
+                session.Error = Task.Run(() => ReadAsync(session, errorOutput, true), CancellationToken.None);
+                session.Join = Task.Run(() => JoinAsync(session), CancellationToken.None);
             }
             catch (Exception error) when (error is IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
             {
@@ -128,15 +131,14 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
         if (errorStream)
         {
             if (line == "MCP_HTTP_STOPPED") return true;
-            if (line is "MCP_HTTP_TOKEN_MISSING" or "MCP_HTTP_ALREADY_RUNNING" or "MCP_HTTP_INVALID_CONFIGURATION" or "MCP_HTTP_STARTUP_OR_SHUTDOWN_FAILED")
-                Fail(session, line);
-            else Fail(session, "INVALID_DIAGNOSTIC");
+            Fail(session, line is "MCP_HTTP_TOKEN_MISSING" or "MCP_HTTP_ALREADY_RUNNING" or "MCP_HTTP_INVALID_CONFIGURATION" or "MCP_HTTP_STARTUP_OR_SHUTDOWN_FAILED"
+                ? line : "INVALID_DIAGNOSTIC");
             return false;
         }
         var expected = $"MCP_HTTP_READY port={session.Settings.Port.ToString(CultureInfo.InvariantCulture)} legacy_sse={(session.Settings.EnableLegacySse ? 1 : 0)}";
         lock (_sync)
         {
-            if (line == expected && !session.SeenReady && !session.Stopping)
+            if (line == expected && session is { SeenReady: false, Stopping: false })
             { session.SeenReady = true; session.Ready.TrySetResult(true); return true; }
         }
         Fail(session, "INVALID_READY"); return false;
@@ -192,7 +194,7 @@ public sealed class McpHttpProcessOwner(Func<McpServiceSettings, ProcessStartInf
         lock (_sync)
         {
             _disposed = true;
-            return new(_dispose ??= StopAsync());
+            return new ValueTask(_dispose ??= StopAsync());
         }
     }
 }

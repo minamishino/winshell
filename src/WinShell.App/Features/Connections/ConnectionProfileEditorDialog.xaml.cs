@@ -6,19 +6,20 @@ using WinShell.Core.Profiles;
 
 namespace WinShell.App.Features.Connections;
 
-public sealed partial class ConnectionProfileEditorDialog : ContentDialog
+public sealed partial class ConnectionProfileEditorDialog
 {
     private readonly ConnectionProfilesViewModel _profiles;
     private readonly ConnectionProfileEditorViewModel _editor;
     private readonly CancellationToken _cancellation;
     private XamlRoot? _dialogRoot;
-    private bool _updatingSelectors = true, _saving;
+    private bool _updatingSelectors, _saving;
 
     public ConnectionProfileEditorDialog(ConnectionProfilesViewModel profiles, ConnectionProfile? profile, CancellationToken cancellation)
     {
         _profiles = profiles;
-        _editor = new(profile);
+        _editor = new ConnectionProfileEditorViewModel(profile);
         _cancellation = cancellation;
+        _updatingSelectors = true;
         InitializeComponent();
         Title = profile is null ? "新建连接" : "编辑连接";
         EditorPanel.DataContext = _editor;
@@ -65,7 +66,7 @@ public sealed partial class ConnectionProfileEditorDialog : ContentDialog
     }
 
     private int DefaultPort => _editor.Protocol == ConnectionProtocol.Ssh ? 22
-        : _editor.Protocol == ConnectionProtocol.Ftps && _editor.FtpsMode == FtpsMode.Implicit ? 990 : 21;
+        : _editor is { Protocol: ConnectionProtocol.Ftps, FtpsMode: FtpsMode.Implicit } ? 990 : 21;
 
     private void Protocol_Changed(object sender, SelectionChangedEventArgs args)
     {
@@ -74,8 +75,8 @@ public sealed partial class ConnectionProfileEditorDialog : ContentDialog
         _editor.Protocol = ReferenceEquals(ProtocolBox.SelectedItem, FtpProtocolItem) ? ConnectionProtocol.Ftp
             : ReferenceEquals(ProtocolBox.SelectedItem, FtpsProtocolItem) ? ConnectionProtocol.Ftps : ConnectionProtocol.Ssh;
         if (_editor.PortText == previousPort.ToString()) _editor.PortText = DefaultPort.ToString();
-        if ((_editor.Protocol == ConnectionProtocol.Ssh && _editor.AuthenticationMethod == AuthenticationMethod.Anonymous) ||
-            (_editor.Protocol != ConnectionProtocol.Ssh && _editor.AuthenticationMethod == AuthenticationMethod.PrivateKey))
+        if (_editor is { Protocol: ConnectionProtocol.Ssh, AuthenticationMethod: AuthenticationMethod.Anonymous } or
+            { Protocol: not ConnectionProtocol.Ssh, AuthenticationMethod: AuthenticationMethod.PrivateKey })
         {
             _editor.AuthenticationMethod = AuthenticationMethod.Password;
             SecretInput.Password = "";
@@ -133,34 +134,60 @@ public sealed partial class ConnectionProfileEditorDialog : ContentDialog
 
     private async void Save_Click(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        args.Cancel = true;
-        if (_saving || !_profiles.CanEdit || _cancellation.IsCancellationRequested) return;
-        ConnectionProfile profile;
-        try { profile = _editor.BuildProfile(); }
-        catch (ArgumentException exception) { ReportError(exception.Message); return; }
-        if (Encoding.UTF8.GetByteCount(SecretInput.Password) > 2560)
-        { ReportError("凭据的 UTF-8 长度不能超过 2560 字节。"); return; }
-
-        var deferral = args.GetDeferral();
-        byte[]? secret = null;
-        _saving = true;
-        EditorScroll.IsEnabled = IsPrimaryButtonEnabled = false;
-        SaveError.IsOpen = false;
         try
         {
-            secret = Encoding.UTF8.GetBytes(SecretInput.Password);
-            await _profiles.SaveProfileWithCredentialAsync(profile, secret, _cancellation);
-            if (_cancellation.IsCancellationRequested) return;
-            if (_profiles.ErrorMessage is { } error) ReportError(error);
-            else { SecretInput.Password = ""; args.Cancel = false; }
+            args.Cancel = true;
+            if (_saving || !_profiles.CanEdit || _cancellation.IsCancellationRequested)
+                return;
+            ConnectionProfile profile;
+            try
+            {
+                profile = _editor.BuildProfile();
+            }
+            catch (ArgumentException exception)
+            {
+                ReportError(exception.Message);
+                return;
+            }
+
+            if (Encoding.UTF8.GetByteCount(SecretInput.Password) > 2560)
+            {
+                ReportError("凭据的 UTF-8 长度不能超过 2560 字节。");
+                return;
+            }
+
+            var deferral = args.GetDeferral();
+            byte[]? secret = null;
+            try
+            {
+                _saving = true;
+                EditorScroll.IsEnabled = IsPrimaryButtonEnabled = false;
+                SaveError.IsOpen = false;
+                secret = Encoding.UTF8.GetBytes(SecretInput.Password);
+                await _profiles.SaveProfileWithCredentialAsync(profile, secret, _cancellation);
+                if (_cancellation.IsCancellationRequested)
+                    return;
+                if (_profiles.ErrorMessage is { } error)
+                    ReportError(error);
+                else
+                {
+                    SecretInput.Password = "";
+                    args.Cancel = false;
+                }
+            }
+            finally
+            {
+                if (secret is not null)
+                    CryptographicOperations.ZeroMemory(secret);
+                _saving = false;
+                try { EditorScroll.IsEnabled = IsPrimaryButtonEnabled = true; }
+                finally { deferral.Complete(); }
+            }
         }
-        catch (Exception) { if (!_cancellation.IsCancellationRequested) ReportError("保存未能完成，请重试。"); }
-        finally
+        catch (Exception)
         {
-            if (secret is not null) CryptographicOperations.ZeroMemory(secret);
-            _saving = false;
-            EditorScroll.IsEnabled = IsPrimaryButtonEnabled = true;
-            deferral.Complete();
+            if (!_cancellation.IsCancellationRequested)
+                ReportError("保存未能完成，请重试。");
         }
     }
 

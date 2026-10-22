@@ -23,7 +23,7 @@ public sealed class SshHostKey : IEquatable<SshHostKey>
             "rsa-sha2-256-cert-v01@openssh.com" or "rsa-sha2-512-cert-v01@openssh.com" => "ssh-rsa-cert-v01@openssh.com",
             _ => algorithm
         };
-        _publicKeyBlob = publicKeyBlob.ToArray();
+        _publicKeyBlob = [.. publicKeyBlob];
         Fingerprint = "SHA256:" + Convert.ToBase64String(SHA256.HashData(_publicKeyBlob)).TrimEnd('=');
     }
 

@@ -41,7 +41,7 @@ internal sealed class SshTunnelSession : ITunnelSession
     }
     private async Task<ITunnelSession> FinishStartAsync(CancellationToken cancellationToken)
     {
-        using var registration = cancellationToken.Register(() => _ = _close(null));
+        await using var registration = cancellationToken.Register(() => _ = _close(null));
         try { await Startup.ConfigureAwait(false); cancellationToken.ThrowIfCancellationRequested(); return this; }
         catch (Exception error) {
             try { await _close(error as SshConnectionException).ConfigureAwait(false); }

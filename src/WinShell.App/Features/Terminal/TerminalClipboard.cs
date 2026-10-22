@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 namespace WinShell.App.Features.Terminal;
 
-internal static class TerminalClipboard
+internal static partial class TerminalClipboard
 {
     internal static string ReadBoundedText()
     {
@@ -21,18 +21,24 @@ internal static class TerminalClipboard
                 var length = 0;
                 while (length < (int)(size / 2) && Marshal.ReadInt16(pointer, length * 2) != 0) length++;
                 if (length == (int)(size / 2)) throw new InvalidDataException("剪贴板文本缺少结束标记。");
-                var text = Marshal.PtrToStringUni(pointer, length)!;
-                if (new UTF8Encoding(false, true).GetByteCount(text) > 65536) throw new InvalidOperationException("粘贴内容不能超过64KiB UTF8。");
-                return text;
+                var text = Marshal.PtrToStringUni(pointer, length);
+                return new UTF8Encoding(false, true).GetByteCount(text) <= 65536 ? text
+                    : throw new InvalidOperationException("粘贴内容不能超过64KiB UTF8。");
             }
-            finally { GlobalUnlock(handle); }
+            finally { _ = GlobalUnlock(handle); }
         }
-        finally { CloseClipboard(); }
+        finally { _ = CloseClipboard(); }
     }
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool OpenClipboard(nint owner);
-    [DllImport("user32.dll")] private static extern bool CloseClipboard();
-    [DllImport("user32.dll", SetLastError = true)] private static extern nint GetClipboardData(uint format);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern nuint GlobalSize(nint memory);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GlobalLock(nint memory);
-    [DllImport("kernel32.dll")] private static extern bool GlobalUnlock(nint memory);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool OpenClipboard(nint owner);
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseClipboard();
+    [LibraryImport("user32.dll", SetLastError = true)] private static partial nint GetClipboardData(uint format);
+    [LibraryImport("kernel32.dll", SetLastError = true)] private static partial nuint GlobalSize(nint memory);
+    [LibraryImport("kernel32.dll", SetLastError = true)] private static partial nint GlobalLock(nint memory);
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GlobalUnlock(nint memory);
 }

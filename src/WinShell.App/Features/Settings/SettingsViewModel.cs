@@ -4,23 +4,24 @@ using WinShell.Core.Settings;
 namespace WinShell.App.Features.Settings;
 
 // Dispatcher-affine, with a single owned operation. Appearance writes never modify grants.
-public sealed class SettingsViewModel(IApplicationSettingsStore store) : ObservableObject, IAsyncDisposable
+public sealed partial class SettingsViewModel(IApplicationSettingsStore store) : ObservableObject, IAsyncDisposable
 {
     private readonly CancellationTokenSource _loadCancellation = new();
-    private ApplicationSettings _settings = new();
-    private string _status = "";
+
     private bool _busy, _closing;
-    private bool _hasSaveFailure;
+
     private Task _pending = Task.CompletedTask;
     private Task? _close;
     public ApplicationSettings Settings
     {
-        get => _settings;
-        private set { if (SetProperty(ref _settings, value)) OnPropertyChanged(nameof(Theme)); }
-    }
+        get;
+        private set { if (SetProperty(ref field, value)) OnPropertyChanged(nameof(Theme)); }
+    } = new();
     public AppearanceTheme Theme => Settings.Theme;
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
-    public bool HasSaveFailure { get => _hasSaveFailure; private set => SetProperty(ref _hasSaveFailure, value); }
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "";
+    [ObservableProperty]
+    public partial bool HasSaveFailure { get; private set; }
     public bool CanEdit => !_busy && !_closing;
 
     public Task LoadAsync() => RunAsync(async () =>
@@ -32,8 +33,7 @@ public sealed class SettingsViewModel(IApplicationSettingsStore store) : Observa
     public Task SetThemeAsync(AppearanceTheme theme)
     {
         if (!Enum.IsDefined(theme)) throw new ArgumentOutOfRangeException(nameof(theme));
-        if (!CanEdit) return Task.CompletedTask;
-        return SetSettingsAsync(Settings with { Theme = theme });
+        return CanEdit ? SetSettingsAsync(Settings with { Theme = theme }) : Task.CompletedTask;
     }
 
     public Task SetSettingsAsync(ApplicationSettings settings)
@@ -82,10 +82,10 @@ public sealed class SettingsViewModel(IApplicationSettingsStore store) : Observa
 
     public ValueTask DisposeAsync()
     {
-        if (_close is not null) return new(_close);
+        if (_close is not null) return new ValueTask(_close);
         _closing = true; OnPropertyChanged(nameof(CanEdit));
         _loadCancellation.Cancel();
-        return new(_close = CloseAsync());
+        return new ValueTask(_close = CloseAsync());
     }
     private async Task CloseAsync()
     {

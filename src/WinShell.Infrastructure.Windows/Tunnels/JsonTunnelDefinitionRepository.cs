@@ -72,7 +72,27 @@ public sealed class JsonTunnelDefinitionRepository(string configurationDirectory
     }
     private static void CheckDuplicates(JsonElement element)
     {
-        if(element.ValueKind==JsonValueKind.Object) { HashSet<string> names=[]; foreach(var property in element.EnumerateObject()) { if(!names.Add(property.Name)) throw new InvalidDataException("JSON 字段重复。"); CheckDuplicates(property.Value); } }
-        else if(element.ValueKind==JsonValueKind.Array) foreach(var value in element.EnumerateArray()) CheckDuplicates(value);
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                HashSet<string> names = [];
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (!names.Add(property.Name)) throw new InvalidDataException("JSON 字段重复。");
+                    CheckDuplicates(property.Value);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var value in element.EnumerateArray()) CheckDuplicates(value);
+                break;
+            case JsonValueKind.Undefined:
+            case JsonValueKind.String:
+            case JsonValueKind.Number:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+            default:
+                break;
+        }
     }
 }

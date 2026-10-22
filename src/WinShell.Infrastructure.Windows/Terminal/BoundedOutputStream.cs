@@ -5,7 +5,7 @@ internal sealed class BoundedOutputStream : Stream
 {
     internal const int BlockSize = 64 * 1024;
     internal const int BlockCount = 16;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Queue<byte[]> _free = new(Enumerable.Range(0, BlockCount).Select(_ => new byte[BlockSize]));
     private readonly Queue<(byte[] Bytes, int Count)> _ready = new();
     private TaskCompletionSource _changed = NewSignal();
@@ -132,7 +132,11 @@ internal sealed class BoundedOutputStream : Stream
                         var count = Math.Min(buffer.Length, block.Count - _offset);
                         block.Bytes.AsMemory(_offset, count).CopyTo(buffer);
                         _offset += count;
-                        if (_offset == block.Count) { _free.Enqueue(block.Bytes); _reading = null; _offset = 0; Signal(); }
+                        if (_offset != block.Count) return count;
+                        _free.Enqueue(block.Bytes);
+                        _reading = null;
+                        _offset = 0;
+                        Signal();
                         return count;
                     }
                     if (_discard) return 0;

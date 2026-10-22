@@ -7,17 +7,18 @@ internal sealed class HttpCappedBuffer(int capacity) : IBufferWriter<byte>
     private byte[] _buffer = new byte[Math.Min(256, capacity)];
     private int _count;
     public void Advance(int count)
-    { if (count < 0 || count > _buffer.Length - _count) throw new InvalidDataException("message_limit"); _count += count; }
+    {
+        if (count < 0 || count > _buffer.Length - _count) throw new InvalidDataException("message_limit");
+        _count += count;
+    }
     public Memory<byte> GetMemory(int sizeHint = 0)
     {
         if (sizeHint < 0 || Math.Max(1, sizeHint) > capacity - _count) throw new InvalidDataException("message_limit");
         var required = _count + Math.Max(1, sizeHint);
-        if (required > _buffer.Length)
-        {
-            var length = _buffer.Length;
-            while (length < required) length = (int)Math.Min(capacity, (long)length * 2);
-            Array.Resize(ref _buffer, length);
-        }
+        if (required <= _buffer.Length) return _buffer.AsMemory(_count);
+        var length = _buffer.Length;
+        while (length < required) length = (int)Math.Min(capacity, (long)length * 2);
+        Array.Resize(ref _buffer, length);
         return _buffer.AsMemory(_count);
     }
     public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
@@ -28,7 +29,11 @@ internal sealed class HttpBoundedOutput(Stream output, long maximumBytes, Action
 {
     private long _written;
     private void Reserve(int count)
-    { if (Interlocked.Add(ref _written, count) > maximumBytes) { stop(); throw new IOException("stream_limit"); } }
+    {
+        if (Interlocked.Add(ref _written, count) <= maximumBytes) return;
+        stop();
+        throw new IOException("stream_limit");
+    }
     public override bool CanRead => false;
     public override bool CanSeek => false;
     public override bool CanWrite => true;

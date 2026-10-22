@@ -5,22 +5,21 @@ using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 
 namespace WinShell.Infrastructure.Ssh;
 
-internal sealed class SshTerminalSession(SshClient client, ushort columns, ushort rows,
+internal sealed class SshTerminalSession(SshClient client, ushort initialColumns, ushort initialRows,
     Func<SshConnectionException?, Task> closeOwner, string? startupCommand = null) : IShellSession, IShellSessionExit
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly BorrowedInputStream _input = new();
     private readonly SshOutputStream _output = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskCompletionSource _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Shell? _shell;
     private Task? _start, _join;
-    private Task _monitor = Task.CompletedTask;
     private bool _closing, _disposed;
     private SshConnectionException? _failure;
     public Stream Output => _output;
-    public Task OutputCompletion => _monitor;
-    public Task ProcessCompletion => _monitor;
+    public Task OutputCompletion { get; private set; } = Task.CompletedTask;
+    public Task ProcessCompletion => OutputCompletion;
     public int? ExitCode => ExitStatus;
     internal bool HasStarted { get { lock (_gate) return _start is not null; } }
     internal int? ExitStatus => _shell?.ExitStatus;
@@ -44,13 +43,13 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
                     lock (_gate)
                     {
                         linked.Token.ThrowIfCancellationRequested();
-                        _shell = client.CreateShell(_input, _output, _output, "xterm-256color", columns, rows, 0, 0,
+                        _shell = client.CreateShell(_input, _output, _output, "xterm-256color", initialColumns, initialRows, 0, 0,
                             new Dictionary<Renci.SshNet.Common.TerminalModes, uint>(), 16384);
                         starting = _shell.StartExclusiveSessionAsync(WakeForShutdown, startupCommand, _stop.Token);
-                        _monitor = MonitorAsync(_shell);
+                        OutputCompletion = MonitorAsync(_shell);
                     }
                     // Caller cancellation is a local close, not a remote transport loss.
-                    using var registration = token.Register(RequestStop);
+                    await using var registration = token.Register(RequestStop);
                     await starting.ConfigureAwait(false);
                 }
                 catch (Exception error)
@@ -60,7 +59,7 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
                     _output.Complete(failure);
                     throw failure;
                 }
-            });
+            }, CancellationToken.None);
         }
     }
 
@@ -94,7 +93,7 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
             failure = _failure;
             if (failure is null && cleanup is not null && !_closing) failure = SshSessionFactory.Classify(cleanup);
             if (failure is null && !_closing && !shell.RemoteClosed)
-                failure = new(SshFailureKind.Network, "SSH 终端连接在通道结束前中断。");
+                failure = new SshConnectionException(SshFailureKind.Network, "SSH 终端连接在通道结束前中断。");
             _failure ??= failure;
         }
         if (failure is not null && cleanup is not null) failure.Data["SshTerminalCleanupFailure"] = cleanup;
@@ -135,7 +134,7 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
     public ValueTask CloseAsync(CancellationToken token)
     {
         RequestStop();
-        return new(closeOwner(_failure));
+        return new ValueTask(closeOwner(_failure));
     }
     internal void RequestStop()
     {
@@ -160,7 +159,7 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
             Exception? failure = null;
             try { if (_shell is not null) await _shell.CloseExclusiveSessionAsync().ConfigureAwait(false); }
             catch (Exception error) { failure = error; }
-            try { await _monitor.ConfigureAwait(false); }
+            try { await OutputCompletion.ConfigureAwait(false); }
             catch (Exception error) { failure ??= error; }
             _output.Complete(_failure ?? failure);
             try { _shell?.Dispose(); }
@@ -180,7 +179,8 @@ internal sealed class SshTerminalSession(SshClient client, ushort columns, ushor
     {
         lock (_gate)
         {
-            if (!_disposed) { _disposed = true; _output.Dispose(); _input.Dispose(); _stop.Dispose(); }
+            if (_disposed) return;
+            _disposed = true; _output.Dispose(); _input.Dispose(); _stop.Dispose();
         }
     }
 }

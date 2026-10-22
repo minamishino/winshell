@@ -53,8 +53,9 @@ internal sealed class GrantedKnownHosts(McpAuthorizedProfile authorized) : IKnow
     public Task<SshHostKey?> ReadAsync(SshEndpointIdentity endpoint, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (!endpoint.Equals(new SshEndpointIdentity(authorized.Profile.Host, authorized.Profile.Port))) throw new InvalidDataException("Unauthorized endpoint.");
-        return Task.FromResult<SshHostKey?>(authorized.HostKey);
+        return endpoint.Equals(new SshEndpointIdentity(authorized.Profile.Host, authorized.Profile.Port))
+            ? Task.FromResult<SshHostKey?>(authorized.HostKey)
+            : throw new InvalidDataException("Unauthorized endpoint.");
     }
     public Task<bool> TrustIfAbsentOrSameAsync(SshEndpointIdentity endpoint, SshHostKey key, CancellationToken token) => throw new NotSupportedException();
 }

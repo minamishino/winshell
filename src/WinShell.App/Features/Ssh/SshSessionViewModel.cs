@@ -7,7 +7,7 @@ namespace WinShell.App.Features.Ssh;
 public enum SshSessionState { Disconnected, Connecting, AwaitingTrust, Connected, Closing, Closed, Failed }
 
 // UI-affine owner. Protocol events are posted to the captured window context.
-public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class SshSessionViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ISshSessionFactory _factory;
     private readonly IKnownHostRepository _knownHosts;
@@ -18,9 +18,6 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
     private ISshSession? _session;
     private Task? _operation, _disposal;
     private bool _disposed;
-    private SshSessionState _state;
-    private string _statusMessage = "尚未连接。", _hostKeyDescription = "";
-    private SshFailureKind? _failureKind;
 
     public SshSessionViewModel(ConnectionProfile profile, ISshSessionFactory factory, IKnownHostRepository knownHosts,
         Func<SshConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm, SynchronizationContext context)
@@ -35,20 +32,26 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
     public Guid ProfileId => Profile.Id;
     public string Target => $"{Profile.UserName}@{Profile.Host}:{Profile.Port}";
     public string Title => Profile.DisplayName;
-    public SshSessionState State => _state;
-    public string StatusMessage => _statusMessage;
-    public string HostKeyDescription => _hostKeyDescription;
-    public SshFailureKind? FailureKind => _failureKind;
+    public SshSessionState State { get; private set; }
+    public string StatusMessage { get; private set; } = "尚未连接。";
+    public string HostKeyDescription { get; private set; } = "";
+    public SshFailureKind? FailureKind { get; private set; }
     public bool CanConnect => !_disposed && _operation is null && _session is null;
     public bool CanCancel => !_disposed && _attemptCancellation is { IsCancellationRequested: false };
     public bool CanDisconnect => !_disposed && _operation is null && _session is not null;
+
+    public void ReportActionFailure()
+    {
+        if (_disposed) return;
+        SetState(State, "SSH 页面操作未能完成，请重试。");
+    }
 
     public void ApplySavedProfile(ConnectionProfile profile)
     {
         if (profile.Id != ProfileId) throw new ArgumentException("连接配置标识不匹配。", nameof(profile));
         if (!CanConnect) return; // Active connections retain their exact snapshot.
         Profile = profile;
-        _hostKeyDescription = "";
+        HostKeyDescription = "";
         OnPropertyChanged(nameof(Profile));
         OnPropertyChanged(nameof(Target));
         OnPropertyChanged(nameof(Title));
@@ -60,7 +63,7 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
         if (_disposed) return Task.CompletedTask;
         if (_operation is not null) return _operation;
         if (_session is not null) return Task.CompletedTask;
-        _attemptCancellation = new();
+        _attemptCancellation = new CancellationTokenSource();
         return RunOperationAsync(ConnectCoreAsync);
     }
 
@@ -68,8 +71,8 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
     {
         var cancellation = _attemptCancellation!;
         var cancellationToken = cancellation.Token;
-        _failureKind = null;
-        _hostKeyDescription = "";
+        FailureKind = null;
+        HostKeyDescription = "";
         SetState(SshSessionState.Connecting, "正在连接并验证主机身份…");
         try
         {
@@ -111,14 +114,14 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
                 SetState(SshSessionState.Disconnected, "连接已关闭。");
                 return;
             }
-            _hostKeyDescription = $"{connected.Key.Algorithm}  {connected.Key.Fingerprint}";
+            HostKeyDescription = $"{connected.Key.Algorithm}  {connected.Key.Fingerprint}";
             SetState(SshSessionState.Connected, "SSH 已连接（已认证），交互式终端尚未接入。");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { SetState(SshSessionState.Disconnected, "连接已取消，资源清理已结束。"); }
         catch (SshConnectionException exception)
         {
-            _failureKind = exception.Kind;
+            FailureKind = exception.Kind;
             SetState(SshSessionState.Failed, FailureMessage(exception.Kind));
         }
         catch (Exception)
@@ -147,7 +150,7 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
             await DisconnectAsync();
             if (failure is not null && !_disposed)
             {
-                _failureKind = failure.Kind;
+                FailureKind = failure.Kind;
                 SetState(SshSessionState.Failed, FailureMessage(failure.Kind));
             }
         }
@@ -164,13 +167,14 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
     public Task DisconnectAsync()
     {
         if (_disposed) return _disposal ?? Task.CompletedTask;
-        if (_operation is not null) { Cancel(); return _operation; }
-        return RunOperationAsync(async () =>
+        if (_operation is null) return RunOperationAsync(async () =>
         {
             SetState(SshSessionState.Closing, "正在断开并清理连接…");
             try { await ReleaseSessionAsync(); SetState(SshSessionState.Disconnected, "SSH 已断开。"); }
             catch { SetState(SshSessionState.Failed, "断开时部分资源清理失败，已尝试全部清理。"); throw; }
         });
+        Cancel();
+        return _operation;
     }
 
     private Task RunOperationAsync(Func<Task> operation)
@@ -210,11 +214,11 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        if (_disposal is not null) return new(_disposal);
+        if (_disposal is not null) return new ValueTask(_disposal);
         _disposed = true;
         Cancel();
         _disposal = DisposeCoreAsync();
-        return new(_disposal);
+        return new ValueTask(_disposal);
     }
     private async Task DisposeCoreAsync()
     {
@@ -228,8 +232,8 @@ public sealed class SshSessionViewModel : ObservableObject, IAsyncDisposable
     }
     private void SetState(SshSessionState state, string message)
     {
-        _state = state;
-        _statusMessage = message;
+        State = state;
+        StatusMessage = message;
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(StatusMessage));
         OnPropertyChanged(nameof(FailureKind));

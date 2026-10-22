@@ -65,7 +65,7 @@ public sealed class JsonApplicationSettingsStore(string configurationDirectory) 
     {
         var path = Path.Combine(_directory, "settings.json");
         if (!ProfileStorageAccess.IsRegularFileOrMissing(path))
-            return new() { Theme = await new JsonAppearanceSettingsStore(_directory).ReadAsync(token).ConfigureAwait(false) };
+            return new ApplicationSettings { Theme = await new JsonAppearanceSettingsStore(_directory).ReadAsync(token).ConfigureAwait(false) };
         await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
         if (input.Length > MaximumBytes) throw new InvalidDataException("应用设置超过 16 KiB。");
         var bytes = new byte[(int)input.Length];
@@ -82,7 +82,7 @@ public sealed class JsonApplicationSettingsStore(string configurationDirectory) 
             var settings = new ApplicationSettings
             {
                 Theme = ReadEnum<AppearanceTheme>(root.GetProperty("theme")), StartupPage = ReadEnum<StartupPage>(root.GetProperty("startupPage")),
-                Terminal = new() { FontFamily = ReadEnum<TerminalFontFamily>(terminal.GetProperty("fontFamily")), FontSize = fontSize, CursorStyle = ReadEnum<TerminalCursorStyle>(terminal.GetProperty("cursorStyle")) },
+                Terminal = new TerminalPreferences { FontFamily = ReadEnum<TerminalFontFamily>(terminal.GetProperty("fontFamily")), FontSize = fontSize, CursorStyle = ReadEnum<TerminalCursorStyle>(terminal.GetProperty("cursorStyle")) },
                 DefaultShell = ReadEnum<DefaultShell>(root.GetProperty("defaultShell")), WslDistribution = root.GetProperty("wslDistribution").GetString()!,
                 ConfirmMultilinePaste = root.GetProperty("confirmMultilinePaste").GetBoolean(), ConfirmTabClose = root.GetProperty("confirmTabClose").GetBoolean()
             };

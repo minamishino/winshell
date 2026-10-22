@@ -16,7 +16,7 @@ internal sealed class SftpSession : IRemoteFileSession
     private readonly SshHostKeyPolicy _policy;
     private readonly ConnectionAdmissionBudget _budget;
     private readonly IDisposable _admission;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private Task? _operation, _close, _disconnect;
     private readonly Task _watch;
@@ -40,7 +40,9 @@ internal sealed class SftpSession : IRemoteFileSession
                 var child = SftpPathPolicy.RemoteChild(path, file.Name);
                 entries.Add(new RemoteFileEntry(file.Name, child, file.IsDirectory, file.IsRegularFile, file.Length));
                 bytes += nextBytes;
-                if (entries.Count == 1000) { limited = true; break; }
+                if (entries.Count < 1000) continue;
+                limited = true;
+                break;
             }
             return new RemoteDirectoryPage(path, entries.AsReadOnly(), limited);
         }, false, cancellationToken);
@@ -122,19 +124,22 @@ internal sealed class SftpSession : IRemoteFileSession
                 if (!ownsTemporary) error.Data["RemoteTemporaryFile"] = temporary;
             }
             if (renameUnconfirmed) error.Data["RemoteDestinationFile"] = target;
-            if (ownsTemporary)
+            if (!ownsTemporary) throw;
+            // After a failed write, disconnect precedes stream disposal to prevent a cancelled tail flush.
+            // A successfully closed stream permits one bounded best-effort unlink of our exact temporary path.
+            // An unacknowledged rename may already have moved the owned file. Neither path is
+            // safe to delete or retry now; retain both exact paths and the original failure.
+            if (streamClosed && !renameUnconfirmed && _client.IsConnected)
             {
-                // After a failed write, disconnect precedes stream disposal to prevent a cancelled tail flush.
-                // A successfully closed stream permits one bounded best-effort unlink of our exact temporary path.
-                // An unacknowledged rename may already have moved the owned file. Neither path is
-                // safe to delete or retry now; retain both exact paths and the original failure.
-                if (streamClosed && !renameUnconfirmed && _client.IsConnected)
+                try
                 {
-                    try { using var cleanup = new CancellationTokenSource(_client.OperationTimeout); await _client.DeleteFileAsync(temporary, cleanup.Token).ConfigureAwait(false); ownsTemporary = false; }
-                    catch (Exception cleanupError) { error.Data["SftpCleanupFailure"] = cleanupError; }
+                    using var cleanup = new CancellationTokenSource(_client.OperationTimeout);
+                    await _client.DeleteFileAsync(temporary, cleanup.Token).ConfigureAwait(false);
+                    ownsTemporary = false;
                 }
-                if (ownsTemporary) error.Data["RemoteTemporaryFile"] = temporary;
+                catch (Exception cleanupError) { error.Data["SftpCleanupFailure"] = cleanupError; }
             }
+            if (ownsTemporary) error.Data["RemoteTemporaryFile"] = temporary;
             throw;
         }
     }
@@ -184,7 +189,7 @@ internal sealed class SftpSession : IRemoteFileSession
             {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, _stop.Token);
                 return await operation(linked.Token).ConfigureAwait(false);
-            });
+            }, CancellationToken.None);
             _operation = core;
             return CompleteAsync(core, transferLease);
         }

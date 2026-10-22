@@ -8,7 +8,7 @@ namespace WinShell.Infrastructure.Ssh;
 internal sealed class SshScriptCapture(int capacity) : Stream
 {
     private readonly byte[] _bytes = new byte[capacity];
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private int _count;
     private bool _disposed;
     internal SshConnectionException? Failure { get; private set; }

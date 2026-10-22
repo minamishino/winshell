@@ -31,8 +31,9 @@ public sealed record ApplicationSettings
     public bool ConfirmTabClose { get; init; } = true;
     public void Validate()
     {
-        if (!Enum.IsDefined(Theme) || !Enum.IsDefined(StartupPage) || !Enum.IsDefined(DefaultShell) || Terminal is null ||
-            WslDistribution is null || WslDistribution.Length > 128 || WslDistribution.Any(char.IsControl) ||
+        ArgumentNullException.ThrowIfNull(Terminal);
+        if (!Enum.IsDefined(Theme) || !Enum.IsDefined(StartupPage) || !Enum.IsDefined(DefaultShell) ||
+            WslDistribution is not { Length: <= 128 } || WslDistribution.Any(char.IsControl) ||
             (DefaultShell == DefaultShell.Wsl && string.IsNullOrWhiteSpace(WslDistribution)))
             throw new ArgumentException("应用设置无效；WSL 默认目标需要显式发行版名称（最多 128 字符）。");
         Terminal.Validate();

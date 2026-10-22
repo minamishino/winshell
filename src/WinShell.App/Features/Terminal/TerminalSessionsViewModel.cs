@@ -8,7 +8,7 @@ using WinShell.Infrastructure.Ssh.Docker;
 
 namespace WinShell.App.Features.Terminal;
 
-public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class TerminalSessionsViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ISshSessionFactory _factory;
     private readonly IKnownHostRepository _knownHosts;
@@ -17,22 +17,22 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
     private readonly Func<SshConnectResult.UnknownHostKey, CancellationToken, Task<bool>> _confirm;
     public TerminalSessionsViewModel(ISshSessionFactory factory, IKnownHostRepository knownHosts,
         Func<SshConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm, IConnectionProfileRepository profiles)
-    { _factory = factory; _knownHosts = knownHosts; _confirm = confirm; _profiles = profiles; Tabs = new(_tabs); }
+    { _factory = factory; _knownHosts = knownHosts; _confirm = confirm; _profiles = profiles; Tabs = new ReadOnlyObservableCollection<TerminalTabViewModel>(_tabs); }
     private readonly ObservableCollection<TerminalTabViewModel> _tabs = [];
     private readonly HashSet<TerminalTabViewModel> _owners = [];
     private readonly Dictionary<TerminalTabViewModel, Task> _closing = [];
-    private TerminalTabViewModel? _selected;
+
     private Task? _shutdown;
     private bool _disposed;
     public ReadOnlyObservableCollection<TerminalTabViewModel> Tabs { get; }
     public int OwnedCount => _owners.Count;
     public TerminalTabViewModel? SelectedTab
     {
-        get => _selected;
+        get;
         set
         {
             if (value is not null && !_tabs.Contains(value)) throw new ArgumentException("终端标签不属于此工作区。");
-            SetProperty(ref _selected, value);
+            SetProperty(ref field, value);
         }
     }
     public TerminalTabViewModel Open(Func<TerminalTabViewModel> createTab, Guid? profileId = null)
@@ -49,10 +49,10 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
     {
         ArgumentNullException.ThrowIfNull(request);
         var command = DockerScriptBuilder.Terminal(request.ContainerId, request.Shell);
-        return ConnectCoreAsync(request.Profile, token, command);
+        return ConnectCoreAsync(request.Profile, command, token);
     }
-    public Task<IShellSession> ConnectSshAsync(ConnectionProfile profile, CancellationToken token) => ConnectCoreAsync(profile, token, null);
-    private async Task<IShellSession> ConnectCoreAsync(ConnectionProfile profile, CancellationToken token, string? startupCommand)
+    public Task<IShellSession> ConnectSshAsync(ConnectionProfile profile, CancellationToken token) => ConnectCoreAsync(profile, null, token);
+    private async Task<IShellSession> ConnectCoreAsync(ConnectionProfile profile, string? startupCommand, CancellationToken token)
     {
         await ValidateSavedProfileAsync(profile, token);
         var result = await _factory.ConnectAsync(profile, token);
@@ -72,9 +72,9 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
         {
             token.ThrowIfCancellationRequested();
             await ValidateSavedProfileAsync(profile, token);
-            if (connected.Session is not ISshTerminalSession terminal)
-                throw new SshConnectionException(SshFailureKind.Protocol, "SSH 连接不支持交互终端。");
-            return terminal.CreateTerminalSession(80, 24, startupCommand);
+            return connected.Session is ISshTerminalSession terminal
+                ? terminal.CreateTerminalSession(80, 24, startupCommand)
+                : throw new SshConnectionException(SshFailureKind.Protocol, "SSH 连接不支持交互终端。");
         }
         catch (Exception initial)
         {
@@ -100,10 +100,10 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
     public IDisposable BeginProfileMutation(Guid profileId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!_mutatingProfiles.Add(profileId)) throw new InvalidOperationException("此连接已有配置或凭据操作。");
-        return new ProfileMutation(this, profileId);
+        return _mutatingProfiles.Add(profileId) ? new ProfileMutation(this, profileId)
+            : throw new InvalidOperationException("此连接已有配置或凭据操作。");
     }
-    private sealed class ProfileMutation(TerminalSessionsViewModel owner, Guid profileId) : IDisposable
+    private sealed partial class ProfileMutation(TerminalSessionsViewModel owner, Guid profileId) : IDisposable
     {
         private bool _disposed;
         public void Dispose() { if (_disposed) return; _disposed = true; owner._mutatingProfiles.Remove(profileId); }
@@ -133,8 +133,8 @@ public sealed class TerminalSessionsViewModel : ObservableObject, IAsyncDisposab
     }
     public ValueTask DisposeAsync()
     {
-        if (_shutdown is not null) return new(_shutdown);
+        if (_shutdown is not null) return new ValueTask(_shutdown);
         _disposed = true;
-        return new(_shutdown = Task.WhenAll(_owners.ToArray().Select(CloseTabAsync)));
+        return new ValueTask(_shutdown = Task.WhenAll(_owners.ToArray().Select(CloseTabAsync)));
     }
 }

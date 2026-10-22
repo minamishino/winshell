@@ -1,5 +1,5 @@
 diff --git a/src/Renci.SshNet/Shell.cs b/src/Renci.SshNet/Shell.cs
-index 423d5ec..29b5a78 100644
+index 423d5ec..9100248 100644
 --- a/src/Renci.SshNet/Shell.cs
 +++ b/src/Renci.SshNet/Shell.cs
 @@ -28,13 +28,26 @@ public sealed class Shell : IDisposable
@@ -17,7 +17,7 @@ index 423d5ec..29b5a78 100644
 +            if (startupCommand != null)
 +            {
 +                if (_noTerminal) throw new InvalidOperationException("An exclusive exec command requires a PTY.");
-+                if (startupCommand.Length == 0 || startupCommand.Length > 8192 || startupCommand.IndexOf('\0') >= 0
++                if (startupCommand.Length == 0 || startupCommand.Length > 8192 || startupCommand.Contains('\0')
 +                    || new System.Text.UTF8Encoding(false, true).GetByteCount(startupCommand) > 8192)
 +                    throw new ArgumentException("Exec command must contain 1..8192 UTF-8 bytes without NUL.", nameof(startupCommand));
 +            }

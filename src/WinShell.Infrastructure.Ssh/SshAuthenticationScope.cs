@@ -9,7 +9,7 @@ using AuthenticationMethod = Renci.SshNet.AuthenticationMethod;
 
 namespace WinShell.Infrastructure.Ssh;
 
-internal sealed partial class SshAuthenticationScope : IDisposable
+internal sealed class SshAuthenticationScope : IDisposable
 {
     private readonly byte[]? _password;
     private readonly PrivateKeyFile? _privateKey;
@@ -79,26 +79,26 @@ internal sealed partial class SshAuthenticationScope : IDisposable
         {
             await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
             var sentinel = new byte[1];
-            if (await stream.ReadAsync(sentinel, cancellationToken).ConfigureAwait(false) != 0)
-                throw new SshConnectionException(SshFailureKind.PrivateKey, "SSH 私钥文件在读取时发生变化。");
-            return bytes;
+            return await stream.ReadAsync(sentinel, cancellationToken).ConfigureAwait(false) == 0
+                ? bytes
+                : throw new SshConnectionException(SshFailureKind.PrivateKey, "SSH 私钥文件在读取时发生变化。");
         }
         catch { CryptographicOperations.ZeroMemory(bytes); throw; }
     }
 
     internal static void ValidatePem(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length > 16384 || bytes.ContainsAnyInRange((byte)128, byte.MaxValue) || !RsaPemPattern().IsMatch(Encoding.ASCII.GetString(bytes)))
+        if (bytes.Length > 16384 || bytes.ContainsAnyInRange((byte)128, byte.MaxValue) || !RsaPemPattern.IsMatch(Encoding.ASCII.GetString(bytes)))
             throw new SshConnectionException(SshFailureKind.PrivateKey,
                 "首期仅支持不超过 16 KiB 的传统 RSA PEM（无口令或 AES-256-CBC 加密）；不支持 OpenSSH、PuTTY、PKCS8 或其他算法。");
     }
 
-    [GeneratedRegex("\\A-----BEGIN RSA PRIVATE KEY-----\\r?\\n(?:Proc-Type: 4,ENCRYPTED\\r?\\nDEK-Info: AES-256-CBC,[A-Fa-f0-9]{32}\\r?\\n\\r?\\n)?(?:[A-Za-z0-9+/=]{1,80}\\r?\\n)+-----END RSA PRIVATE KEY-----(?:\\r?\\n)?\\z", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
-    private static partial Regex RsaPemPattern();
+    // NonBacktracking uses the runtime's linear-time engine; the source generator only caches this same instance.
+    private static readonly Regex RsaPemPattern = new(@"\A-----BEGIN RSA PRIVATE KEY-----\r?\n(?:Proc-Type: 4,ENCRYPTED\r?\nDEK-Info: AES-256-CBC,[A-Fa-f0-9]{32}\r?\n\r?\n)?(?:[A-Za-z0-9+/=]{1,80}\r?\n)+-----END RSA PRIVATE KEY-----(?:\r?\n)?\z", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     public void Dispose()
     {
-        try { (Method as IDisposable)?.Dispose(); }
+        try { Method.Dispose(); }
         finally
         {
             _privateKey?.Dispose();

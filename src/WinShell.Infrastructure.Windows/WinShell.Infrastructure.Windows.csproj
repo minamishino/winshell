@@ -4,6 +4,9 @@
     <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
     <SupportedOSPlatformVersion>10.0.19045.0</SupportedOSPlatformVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- This AnyCPU library must deploy the hosts needed by the x64 App, including ARM64 emulation. -->
+    <ConptyRequiresx64Host>true</ConptyRequiresx64Host>
+    <ConptyRequiresARM64Host>true</ConptyRequiresARM64Host>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.Console.ConPTY" />

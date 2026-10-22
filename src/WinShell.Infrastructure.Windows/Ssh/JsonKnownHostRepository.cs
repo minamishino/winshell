@@ -139,7 +139,7 @@ public sealed class JsonKnownHostRepository : IKnownHostRepository
                     var blob = Convert.FromBase64String(encodedKey);
                     // Require the canonical base64 form, including padding; no whitespace or oversized decoded data.
                     if (Convert.ToBase64String(blob) != encodedKey) throw new InvalidDataException("主机公钥 Base64 无效。");
-                    if (!entries.TryAdd(new(hostname, port), new(algorithm, blob)))
+                    if (!entries.TryAdd(new SshEndpointIdentity(hostname, port), new SshHostKey(algorithm, blob)))
                         throw new InvalidDataException("可信主机身份重复。");
                 }
                 return entries;
@@ -156,8 +156,7 @@ public sealed class JsonKnownHostRepository : IKnownHostRepository
         var value = element.GetProperty(name);
         if (value.ValueKind != JsonValueKind.String) throw new InvalidDataException("可信主机字段必须为字符串。");
         var text = value.GetString()!;
-        if (text.Length > maximumLength) throw new InvalidDataException("可信主机字段超出长度上限。");
-        return text;
+        return text.Length <= maximumLength ? text : throw new InvalidDataException("可信主机字段超出长度上限。");
     }
 
     private static void ValidateProperties(JsonElement element, HashSet<string> expected)
@@ -181,7 +180,7 @@ public sealed class JsonKnownHostRepository : IKnownHostRepository
             await using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16384, FileOptions.Asynchronous))
             {
                 ProfileStorageAccess.EnsureCurrentUserFileAccess(temporaryPath);
-                using var writer = new Utf8JsonWriter(output);
+                await using var writer = new Utf8JsonWriter(output);
                 writer.WriteStartObject();
                 writer.WriteNumber("schemaVersion", 1);
                 writer.WriteStartArray("hosts");

@@ -2,6 +2,7 @@ using Renci.SshNet;
 using Renci.SshNet.Common;
 using WinShell.Core.Ssh;
 using WinShell.Core.Tunnels;
+using WinShell.Core.Terminal;
 using SshConnectionException = WinShell.Core.Ssh.SshConnectionException;
 
 namespace WinShell.Infrastructure.Ssh;
@@ -17,7 +18,7 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
     private readonly SshClient _client;
     private readonly IDisposable? _admission;
     private readonly SshHostKeyPolicy _hostKey;
-    private readonly object _closeLock = new();
+    private readonly Lock _closeLock = new();
     private readonly TaskCompletionSource _connectionSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _closeTask;
     private readonly CancellationTokenSource _watchCancellation = new();
@@ -104,7 +105,7 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
             cancellationToken.ThrowIfCancellationRequested();
             var scriptBytes = encoding.GetBytes(script);
             // Publish the owned core before any worker can close the session. The outer wrapper is never joined by close.
-            _scriptCore = Task.Run(() => RunScriptCoreAsync(scriptBytes, cancellationToken));
+            _scriptCore = Task.Run(() => RunScriptCoreAsync(scriptBytes, cancellationToken), CancellationToken.None);
             return CompleteScriptAsync(_scriptCore);
         }
     }
@@ -126,8 +127,8 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(callerToken, _scriptStop.Token);
         deadline.CancelAfter(ScriptTimeout);
         using var input = new MemoryStream(scriptBytes, writable: false);
-        using var output = new SshScriptCapture(32768);
-        using var errorOutput = new SshScriptCapture(16384);
+        await using var output = new SshScriptCapture(32768);
+        await using var errorOutput = new SshScriptCapture(16384);
         Shell? shell = null;
         Task? starting = null;
         Exception? failure = null;
@@ -198,7 +199,7 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
 
     public ValueTask DisposeAsync() => new(BeginClose(null));
 
-    public WinShell.Core.Terminal.IShellSession CreateTerminalSession(ushort columns, ushort rows, string? startupCommand = null)
+    public IShellSession CreateTerminalSession(ushort columns, ushort rows, string? startupCommand = null)
     {
         SshTerminalSession.ValidateSize(columns, rows);
         SshTerminalSession.ValidateStartupCommand(startupCommand);
@@ -206,7 +207,7 @@ internal sealed class SshNetSession : ISshScriptSession, ISshForwardingSession, 
         {
             if (_terminal is not null || _tunnel is not null || _scriptCore is not null || _closeTask is not null || !_client.IsConnected)
                 throw new InvalidOperationException("SSH 连接只能用于一次脚本、终端或隧道。");
-            return _terminal = new(_client, columns, rows, BeginClose, startupCommand);
+            return _terminal = new SshTerminalSession(_client, columns, rows, BeginClose, startupCommand);
         }
     }
 

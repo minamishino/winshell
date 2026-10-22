@@ -7,11 +7,12 @@ using WinShell.Core.Connections;
 using WinShell.Core.Credentials;
 using WinShell.Core.Files;
 using WinShell.Core.Profiles;
+using WinShell.Core.Ssh;
 namespace WinShell.Infrastructure.Ftp;
 
 internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore credentials, ConnectionAdmissionBudget budget, IConnectionProfileRepository profiles, TimeSpan timeout, X509ChainPolicy? chainPolicy) : IRemoteFileSession
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private Task? _operation, _close;
     public bool IsReady
@@ -68,7 +69,7 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
                         throw new RemoteFileException(RemoteFileFailureKind.Protocol, "无法解析 FTP 目录记录。");
                     if (item.Name is "." or "..")
                         continue;
-                    if (item.Size < 0 && item.Type == FtpObjectType.File)
+                    if (item is { Size: < 0, Type: FtpObjectType.File })
                         throw new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 文件长度无效。");
                     entries.Add(new RemoteFileEntry(item.Name, FtpPathPolicy.Child(path, item.Name), item.Type == FtpObjectType.Directory, item.Type == FtpObjectType.File, Math.Max(0, item.Size)));
                     if (entries.Count == 1000)
@@ -145,11 +146,9 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
                 var stream = await client.OpenOwnedDataAsync("STOR " + temporary, token).ConfigureAwait(false);
                 var result = await CopyAsync(input, stream, input.Length, progress, token).ConfigureAwait(false);
                 await client.ConfirmCompletionAsync(stream, token).ConfigureAwait(false);
-                using (var deadline = Deadline(token))
-                {
-                    await EnsureAbsentAsync(client, remoteDirectory, target, null, deadline.Token).ConfigureAwait(false);
-                    await client.Rename(temporary, target, deadline.Token).ConfigureAwait(false);
-                }
+                using var deadline = Deadline(token);
+                await EnsureAbsentAsync(client, remoteDirectory, target, null, deadline.Token).ConfigureAwait(false);
+                await client.Rename(temporary, target, deadline.Token).ConfigureAwait(false);
                 return result;
             }
             catch (Exception error)
@@ -189,17 +188,15 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
             await output.WriteAsync(buffer.AsMemory(0, count), deadline.Token).ConfigureAwait(false);
             hash.AppendData(buffer.AsSpan(0, count));
             copied += count;
-            if (Environment.TickCount64 - last >= 100)
-            {
-                progress?.Report(new(copied, size));
-                last = Environment.TickCount64;
-            }
+            if (Environment.TickCount64 - last < 100) continue;
+            progress?.Report(new FileTransferProgress(copied, size));
+            last = Environment.TickCount64;
         }
         if (copied != size)
             throw new IOException("文件长度在传输期间发生变化。");
         await output.FlushAsync(token).ConfigureAwait(false);
-        progress?.Report(new(copied, size));
-        return new(copied, Convert.ToHexString(hash.GetHashAndReset()));
+        progress?.Report(new FileTransferProgress(copied, size));
+        return new FileTransferResult(copied, Convert.ToHexString(hash.GetHashAndReset()));
     }
     private Task<T> RunAsync<T>(Func<BoundedFtpClient, CancellationToken, Task<T>> operation, bool data, CancellationToken caller)
     {
@@ -229,7 +226,7 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
                     } != profile)
                         throw new InvalidOperationException("配置已更改或删除；请重新选择文件连接。");
                     connection = budget.AdmitConnection();
-                    client = new(profile, credentials, timeout, chainPolicy, budget);
+                    client = new BoundedFtpClient(profile, credentials, timeout, chainPolicy, budget);
                     using (var deadline = Deadline(linked.Token))
                     {
                         handshake = await budget.EnterHandshakeAsync(deadline.Token).ConfigureAwait(false);
@@ -245,31 +242,27 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
                     completion.SetResult(result);
                 else
                     completion.SetException(Classify(failure, caller.IsCancellationRequested || _stop.IsCancellationRequested));
-            });
+            }, CancellationToken.None);
             return completion.Task;
         }
     }
     private static Exception Classify(Exception error, bool cancelled)
     {
-        Exception classified;
-        if (cancelled)
-            classified = new OperationCanceledException("FTP 操作已取消。", error);
-        else if (error is ArgumentException or InvalidOperationException or WinShell.Core.Ssh.SshConnectionException or RemoteFileException)
+        if (!cancelled && error is ArgumentException or InvalidOperationException or SshConnectionException or RemoteFileException)
             return error;
-        else if (error is FluentFTP.Exceptions.FtpAuthenticationException)
-            classified = new RemoteFileException(RemoteFileFailureKind.Authentication, "FTP 用户名或密码认证失败。", error);
-        else if (ContainsAuthenticationError(error))
-            classified = new RemoteFileException(RemoteFileFailureKind.Certificate, "FTPS 证书、主机名或 TLS 验证失败。", error);
-        else if (error is OperationCanceledException or TimeoutException)
-            classified = new RemoteFileException(RemoteFileFailureKind.Timeout, "FTP 网络操作超时。", error);
-        else if (error is UnauthorizedAccessException || error is FluentFTP.Exceptions.FtpCommandException command && command.CompletionCode.StartsWith("55", StringComparison.Ordinal))
-            classified = new RemoteFileException(RemoteFileFailureKind.Permission, "FTP 文件或目录访问被拒绝。", error);
-        else if (error is FluentFTP.Exceptions.FtpException)
-            classified = new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 协议操作失败。", error);
-        else if (error is IOException)
-            classified = new RemoteFileException(RemoteFileFailureKind.Network, error.Message, error);
-        else
-            classified = new RemoteFileException(RemoteFileFailureKind.Network, "FTP 网络连接失败。", error);
+        Exception classified = error switch
+        {
+            _ when cancelled => new OperationCanceledException("FTP 操作已取消。", error),
+            FluentFTP.Exceptions.FtpAuthenticationException => new RemoteFileException(RemoteFileFailureKind.Authentication, "FTP 用户名或密码认证失败。", error),
+            _ when ContainsAuthenticationError(error) => new RemoteFileException(RemoteFileFailureKind.Certificate, "FTPS 证书、主机名或 TLS 验证失败。", error),
+            OperationCanceledException or TimeoutException => new RemoteFileException(RemoteFileFailureKind.Timeout, "FTP 网络操作超时。", error),
+            UnauthorizedAccessException => new RemoteFileException(RemoteFileFailureKind.Permission, "FTP 文件或目录访问被拒绝。", error),
+            FluentFTP.Exceptions.FtpCommandException command when command.CompletionCode.StartsWith("55", StringComparison.Ordinal) =>
+                new RemoteFileException(RemoteFileFailureKind.Permission, "FTP 文件或目录访问被拒绝。", error),
+            FluentFTP.Exceptions.FtpException => new RemoteFileException(RemoteFileFailureKind.Protocol, "FTP 协议操作失败。", error),
+            IOException => new RemoteFileException(RemoteFileFailureKind.Network, error.Message, error),
+            _ => new RemoteFileException(RemoteFileFailureKind.Network, "FTP 网络连接失败。", error)
+        };
         foreach (System.Collections.DictionaryEntry entry in error.Data)
             classified.Data[entry.Key] = entry.Value;
         return classified;
@@ -278,6 +271,22 @@ internal sealed class FtpFileSession(ConnectionProfile profile, ICredentialStore
     public ValueTask DisposeAsync()
     {
         lock (_gate)
-            return new(_close ??= Task.Run(async () => { await _stop.CancelAsync().ConfigureAwait(false); Task? operation; lock (_gate) operation = _operation; if (operation is not null) try { await operation.ConfigureAwait(false); } catch (Exception) {/* Caller owns operation error. */} _stop.Dispose(); }));
+            return new ValueTask(_close ??= Task.Run(async () =>
+            {
+                Exception? cancellationFailure = null;
+                try { await _stop.CancelAsync().ConfigureAwait(false); }
+                catch (Exception error) { cancellationFailure = error; }
+                // Cancellation callbacks may fail, but admitted work still owns its resources until joined.
+                Task? operation;
+                lock (_gate) operation = _operation;
+                if (operation is not null)
+                {
+                    try { await operation.ConfigureAwait(false); }
+                    catch (Exception) { /* Caller owns operation error. */ }
+                }
+                _stop.Dispose();
+                if (cancellationFailure is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cancellationFailure).Throw();
+            }));
     }
 }

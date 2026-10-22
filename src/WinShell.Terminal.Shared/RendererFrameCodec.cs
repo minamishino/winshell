@@ -19,8 +19,9 @@ internal sealed class RendererFrameCodec(Stream stream)
             throw new InvalidDataException("Invalid renderer frame header.");
         var payload = new byte[length];
         await stream.ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
-        _readSequence = sequence;
-        return new(type, sequence, payload);
+        var frame = new RendererFrame(type, sequence, payload);
+        _readSequence = frame.Sequence;
+        return frame;
     }
     // Each direction has a single writer; callers serialize before entering, with bounded admission.
     public async Task<ulong> WriteAsync(RendererFrameType type, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)

@@ -114,7 +114,8 @@ internal sealed class SshOutputStream : Stream
                         var count = Math.Min(buffer.Length, current.Count - _offset);
                         var data = current.Bytes.AsMemory(_offset, count);
                         data.CopyTo(buffer); _hash.AppendData(data.Span); _bytesRead += count; _offset += count;
-                        if (_offset == current.Count) { _free.Enqueue(current.Bytes); _reading = null; _offset = 0; Signal(); }
+                        if (_offset != current.Count) return count;
+                        _free.Enqueue(current.Bytes); _reading = null; _offset = 0; Signal();
                         return count;
                     }
                     if (_complete) { if (_failure is not null) ExceptionDispatchInfo.Capture(_failure).Throw(); return 0; }

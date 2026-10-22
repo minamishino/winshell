@@ -82,23 +82,20 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
         var gateAcquired = false;
         try
         {
-            try
-            {
-                await _operationGate.WaitAsync(acquisitionCancellation.Token).ConfigureAwait(false);
-                gateAcquired = true;
-                acquisitionCancellation.Token.ThrowIfCancellationRequested();
-                ProfileStorageAccess.EnsureCurrentUserAccess(_configurationDirectory);
-                await using var fileLock = await AcquireFileLockAsync(acquisitionCancellation.Token).ConfigureAwait(false);
-                // The five-second budget covers acquisition only; actual I/O uses the caller's token.
-                acquisitionCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
-                cancellationToken.ThrowIfCancellationRequested();
-                ProfileStorageAccess.EnsureConfigurationFileAccess(_configurationDirectory);
-                return await operation(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && acquisitionCancellation.IsCancellationRequested)
-            {
-                throw new TimeoutException("等待配置文件锁超过 5 秒。", exception);
-            }
+            await _operationGate.WaitAsync(acquisitionCancellation.Token).ConfigureAwait(false);
+            gateAcquired = true;
+            acquisitionCancellation.Token.ThrowIfCancellationRequested();
+            ProfileStorageAccess.EnsureCurrentUserAccess(_configurationDirectory);
+            await using var fileLock = await AcquireFileLockAsync(acquisitionCancellation.Token).ConfigureAwait(false);
+            // The five-second budget covers acquisition only; actual I/O uses the caller's token.
+            acquisitionCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
+            cancellationToken.ThrowIfCancellationRequested();
+            ProfileStorageAccess.EnsureConfigurationFileAccess(_configurationDirectory);
+            return await operation(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && acquisitionCancellation.IsCancellationRequested)
+        {
+            throw new TimeoutException("等待配置文件锁超过 5 秒。", exception);
         }
         finally
         {
@@ -120,7 +117,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             var primary = await ReadFileAsync("profiles.json", cancellationToken).ConfigureAwait(false);
             if (primary is not null)
             {
-                return new(primary, false);
+                return new ProfileReadResult(primary, false);
             }
         }
         catch (InvalidDataException exception)
@@ -133,7 +130,7 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             var backup = await ReadFileAsync("profiles.backup.json", cancellationToken).ConfigureAwait(false);
             if (backup is not null)
             {
-                return new(backup, true);
+                return new ProfileReadResult(backup, true);
             }
         }
         catch (InvalidDataException exception)
@@ -141,11 +138,9 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             throw new InvalidDataException("主配置和备份均无法读取，请保留原文件并检查配置。", exception);
         }
 
-        if (primaryFailure is not null)
-        {
-            throw new InvalidDataException("主配置已损坏且无有效备份，请保留原文件并检查配置。", primaryFailure);
-        }
-        return new(Array.Empty<ConnectionProfile>(), false);
+        return primaryFailure is null
+            ? new ProfileReadResult([], false)
+            : throw new InvalidDataException("主配置已损坏且无有效备份，请保留原文件并检查配置。", primaryFailure);
     }
 
     private async Task<IReadOnlyList<ConnectionProfile>?> ReadFileAsync(string fileName, CancellationToken cancellationToken)
@@ -271,14 +266,12 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
         foreach (var value in new[] { profile.DisplayName, profile.Host, profile.UserName, profile.GroupName,
                      profile.PrivateKeyPath, profile.CredentialReference })
         {
-            if (value is not null)
+            if (value is null) continue;
+            if (value.Length > MaximumFileBytes)
             {
-                if (value.Length > MaximumFileBytes)
-                {
-                    throw new InvalidDataException("连接配置超过 4 MiB 限额。");
-                }
-                stringBytes += Encoding.UTF8.GetByteCount(value);
+                throw new InvalidDataException("连接配置超过 4 MiB 限额。");
             }
+            stringBytes += Encoding.UTF8.GetByteCount(value);
         }
         if (stringBytes > MaximumFileBytes)
         {
@@ -296,8 +289,8 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
                              FileShare.None, 16 * 1024, FileOptions.Asynchronous))
             {
                 ProfileStorageAccess.EnsureCurrentUserFileAccess(temporaryPath);
-                using var boundedOutput = new BoundedWriteStream(output, MaximumFileBytes);
-                using var writer = new Utf8JsonWriter(boundedOutput);
+                await using var boundedOutput = new BoundedWriteStream(output, MaximumFileBytes);
+                await using var writer = new Utf8JsonWriter(boundedOutput);
                 writer.WriteStartObject();
                 writer.WriteNumber("schemaVersion", 1);
                 writer.WriteStartArray("profiles");
@@ -338,12 +331,13 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
 
     private sealed class BoundedWriteStream(Stream destination, long maximumBytes) : Stream
     {
-        private long _writtenBytes;
+        private long MaximumBytes { get; } = maximumBytes;
+        private long _remainingBytes = maximumBytes;
         public override bool CanRead => false;
         public override bool CanSeek => false;
         public override bool CanWrite => true;
-        public override long Length => _writtenBytes;
-        public override long Position { get => _writtenBytes; set => throw new NotSupportedException(); }
+        public override long Length => MaximumBytes - _remainingBytes;
+        public override long Position { get => Length; set => throw new NotSupportedException(); }
         public override void Flush() => destination.Flush();
         public override Task FlushAsync(CancellationToken cancellationToken) => destination.FlushAsync(cancellationToken);
         public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
@@ -361,11 +355,11 @@ public sealed class JsonConnectionProfileRepository : IConnectionProfileReposito
             WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         private void Reserve(int byteCount)
         {
-            if (byteCount > maximumBytes - _writtenBytes)
+            if (byteCount > _remainingBytes)
             {
                 throw new InvalidDataException("序列化配置超过 4 MiB 限额。");
             }
-            _writtenBytes += byteCount;
+            _remainingBytes -= byteCount;
         }
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();

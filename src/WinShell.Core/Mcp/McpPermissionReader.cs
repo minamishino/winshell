@@ -12,13 +12,13 @@ public sealed class McpPermissionReader(IMcpGrantRepository grants, IConnectionP
     {
         if (!Scopes.Contains(scope, StringComparer.Ordinal)) return [];
         var validated = await ReadBoundAsync(scope, cancellationToken).ConfigureAwait(false);
-        return validated.Select(item => item.Authorized).ToArray();
+        return [.. validated.Select(item => item.Authorized)];
     }
 
     public async Task<IReadOnlySet<string>> ReadAvailableScopesAsync(CancellationToken cancellationToken)
     {
         var available = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (permission, authorized) in await ReadBoundAsync(null, cancellationToken).ConfigureAwait(false))
+        foreach (var (permission, _) in await ReadBoundAsync(null, cancellationToken).ConfigureAwait(false))
             foreach (var scope in Scopes)
                 if (Enabled(permission, scope)) available.Add(scope);
         return available;
@@ -41,8 +41,8 @@ public sealed class McpPermissionReader(IMcpGrantRepository grants, IConnectionP
             if (requiredScope is null || !Enabled(permission, requiredScope)) continue;
             var profile = saved.Profiles.SingleOrDefault(profile => profile.Id == permission.ProfileId);
             if (profile is null || profile.Protocol != ConnectionProtocol.Ssh || ConnectionProfileValidator.Validate(profile).Count != 0) continue;
-            var key = await hosts.ReadAsync(new(profile.Host, profile.Port), cancellationToken).ConfigureAwait(false);
-            if (key is not null && permission.Allows(profile, key, requiredScope)) authorized.Add((permission, new(profile, key)));
+            var key = await hosts.ReadAsync(new SshEndpointIdentity(profile.Host, profile.Port), cancellationToken).ConfigureAwait(false);
+            if (key is not null && permission.Allows(profile, key, requiredScope)) authorized.Add((permission, new McpAuthorizedProfile(profile, key)));
         }
         return authorized;
     }

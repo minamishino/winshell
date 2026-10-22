@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using WinShell.Core.Profiles;
 using WinShell.Core.Ssh;
 namespace WinShell.Core.Files;
@@ -25,6 +26,10 @@ public abstract record RemoteFileConnectResult
     private RemoteFileConnectResult()
     {
     }
-    public sealed record Connected(IRemoteFileSession Session, SshHostKey? Key = null) : RemoteFileConnectResult;
+    public sealed record Connected(
+        IRemoteFileSession Session,
+        [property: SuppressMessage("ReSharper", "NotAccessedPositionalProperty.Global",
+            Justification = "Preserves the public connection-result constructor and deconstruction contract: SFTP supplies the verified SSH host key, while FTP leaves it null. Current consumers read only Session.")]
+        SshHostKey? Key = null) : RemoteFileConnectResult;
     public sealed record UnknownHostKey(SshEndpointIdentity Endpoint, SshHostKey Key) : RemoteFileConnectResult;
 }

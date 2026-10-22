@@ -6,7 +6,7 @@ using WinShell.Core.Tunnels;
 namespace WinShell.App.Features.Tunnels;
 
 // UI-affine: each row retains its start/close operation and session until true cleanup completion.
-public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepository knownHosts, ITunnelDefinitionRepository repository,
+public sealed partial class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepository knownHosts, ITunnelDefinitionRepository repository,
     Func<TunnelStartResult.UnknownHostKey,CancellationToken,Task<bool>> confirm) : ObservableObject,IAsyncDisposable
 {
     public ObservableCollection<TunnelRowViewModel> Rows { get; }=[];
@@ -18,7 +18,7 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
     {
         using var linked=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,_stop.Token);
         await _mutations.WaitAsync(linked.Token);
-        try { if(_loaded) return; var definitions=await repository.ReadAsync(linked.Token); linked.Token.ThrowIfCancellationRequested(); foreach(var definition in definitions) Rows.Add(new(definition)); _loaded=true; }
+        try { if(_loaded) return; var definitions=await repository.ReadAsync(linked.Token); linked.Token.ThrowIfCancellationRequested(); foreach(var definition in definitions) Rows.Add(new TunnelRowViewModel(definition)); _loaded=true; }
         finally { _mutations.Release(); }
     }
     public async Task SaveAsync(TunnelDefinition definition,CancellationToken cancellationToken)
@@ -34,7 +34,7 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
             if(existing is null && Rows.Count>=64) throw new InvalidOperationException("最多保存 64 个隧道定义。");
             var definitions=Rows.Where(row=>row!=existing).Select(row=>row.Definition).Append(definition).ToArray();
             await repository.ReplaceAsync(definitions,linked.Token);
-            if(existing is not null) Rows.Remove(existing); Rows.Add(new(definition));
+            if(existing is not null) Rows.Remove(existing); Rows.Add(new TunnelRowViewModel(definition));
         } finally {_mutations.Release();}
     }
     public Task StartAsync(TunnelRowViewModel row,ConnectionProfile profile)
@@ -63,7 +63,7 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
             finally { row.Cancellation.Dispose(); row.Cancellation=null; completion.SetResult(); }
         }
     }
-    public Task StopAsync(TunnelRowViewModel row)
+    public static Task StopAsync(TunnelRowViewModel row)
     {
         if(row.Closing is not null) return row.Closing;
         row.Cancellation?.Cancel(); row.Status="正在关闭";
@@ -79,7 +79,7 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
     {
         ObjectDisposedException.ThrowIf(_disposed,this); await StopAsync(row);
         using var linked=CancellationTokenSource.CreateLinkedTokenSource(token,_stop.Token); await _mutations.WaitAsync(linked.Token);
-        try { await repository.ReplaceAsync(Rows.Where(value=>value!=row).Select(value=>value.Definition).ToArray(),linked.Token); Rows.Remove(row); }
+        try { TunnelDefinition[] remaining = [.. Rows.Where(value=>value!=row).Select(value=>value.Definition)]; await repository.ReplaceAsync(remaining,linked.Token); Rows.Remove(row); }
         finally {_mutations.Release();}
     }
     public async Task DeleteProfileAsync(Guid profileId)
@@ -91,13 +91,13 @@ public sealed class TunnelsViewModel(ITunnelFactory factory, IKnownHostRepositor
         try {
             await Task.WhenAll(affected.Select(StopAsync));
             await _mutations.WaitAsync(_stop.Token);
-            try { var remaining=Rows.Where(value=>value.Definition.ProfileId!=profileId).ToArray(); await repository.ReplaceAsync(remaining.Select(row=>row.Definition).ToArray(),_stop.Token); foreach(var row in Rows.Except(remaining).ToArray()) Rows.Remove(row); }
+            try { var remaining=Rows.Where(value=>value.Definition.ProfileId!=profileId).ToArray(); TunnelDefinition[] definitions = [.. remaining.Select(row=>row.Definition)]; await repository.ReplaceAsync(definitions,_stop.Token); foreach(var row in Rows.Except(remaining).ToArray()) Rows.Remove(row); }
             finally {_mutations.Release();}
         } finally {_deletedProfiles.Remove(profileId);}
     }
     public void Publish() { foreach(var row in Rows) row.Publish(); }
-    private static string Describe(Exception error)=>error is SshConnectionException ssh ? $"SSH 错误：{ssh.Kind}" : error is OperationCanceledException ? "操作已取消。" : "隧道操作失败，请检查参数、网络与文件权限。";
-    public ValueTask DisposeAsync() { if(_disposal is not null)return new(_disposal); _disposed=true; _stop.Cancel(); _disposal=CloseAllAsync(); return new(_disposal); }
+    private static string Describe(Exception error)=>error switch { SshConnectionException ssh => $"SSH 错误：{ssh.Kind}", OperationCanceledException => "操作已取消。", _ => "隧道操作失败，请检查参数、网络与文件权限。" };
+    public ValueTask DisposeAsync() { if(_disposal is not null)return new ValueTask(_disposal); _disposed=true; _stop.Cancel(); _disposal=CloseAllAsync(); return new ValueTask(_disposal); }
     private async Task CloseAllAsync() {
         try { await Task.WhenAll(Rows.Select(StopAsync)); await _mutations.WaitAsync(); _mutations.Release(); }
         finally {_stop.Dispose();}
