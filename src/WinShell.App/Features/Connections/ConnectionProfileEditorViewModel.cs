@@ -3,7 +3,7 @@ using WinShell.Core.Profiles;
 
 namespace WinShell.App.Features.Connections;
 
-public sealed class ConnectionProfileEditorViewModel : ObservableObject
+public sealed partial class ConnectionProfileEditorViewModel : ObservableObject
 {
     private readonly Guid _profileId;
     private readonly string? _credentialReference;
@@ -45,8 +45,7 @@ public sealed class ConnectionProfileEditorViewModel : ObservableObject
             UserName.Trim(), GroupName.Trim(), AuthenticationMethod,
             string.IsNullOrWhiteSpace(PrivateKeyPath) ? null : PrivateKeyPath.Trim(), _credentialReference, FtpsMode);
         var errors = ConnectionProfileValidator.Validate(profile);
-        if (errors.Count != 0)
-            throw new ArgumentException(string.Join(Environment.NewLine, errors.Select(error => error.Message)));
-        return profile;
+        return errors.Count == 0 ? profile
+            : throw new ArgumentException(string.Join(Environment.NewLine, errors.Select(error => error.Message)));
     }
 }
