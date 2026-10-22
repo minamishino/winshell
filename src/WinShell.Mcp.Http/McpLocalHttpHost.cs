@@ -93,7 +93,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(10));
         builder.Services.AddMcpServer(server =>
         {
-            server.ServerInfo = new Implementation { Name = "WinShell", Version = "0.1.0" };
+            server.ServerInfo = new Implementation { Name = "WinShell", Version = typeof(McpLocalHttpHost).Assembly.GetName().Version!.ToString(3) };
             server.ProtocolVersion = "2025-11-25";
             server.InitializationTimeout = TimeSpan.FromSeconds(30);
             server.ScopeRequests = false;
