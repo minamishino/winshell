@@ -19,10 +19,10 @@ public static class SftpPathPolicy
     public static string LocalFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!Path.IsPathFullyQualified(path) || path.StartsWith("\\\\", StringComparison.Ordinal) || path.Contains('\0'))
+        if (!Path.IsPathFullyQualified(path) || path.StartsWith(@"\\", StringComparison.Ordinal) || path.Contains('\0'))
             throw new ArgumentException("请选择本机绝对文件路径。");
         var root = Path.GetPathRoot(path)!;
-        foreach (var component in path[root.Length..].Split(['/', '\\']))
+        foreach (var component in path[root.Length..].Split('/', '\\'))
         {
             if (component.Length == 0 || component is "." or ".." || component.EndsWith('.') || component.EndsWith(' ') || component.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
                 throw new ArgumentException("本地路径包含不安全的文件名、流或相对路径。");
