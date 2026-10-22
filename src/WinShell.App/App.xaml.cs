@@ -31,7 +31,7 @@ using WinShell.Infrastructure.Windows.Profiles;
 
 namespace WinShell.App;
 
-public partial class App : Application
+public partial class App
 {
     private IHost? _host;
     private Window? _mainWindow;
@@ -145,7 +145,7 @@ public partial class App : Application
         var docker = AttemptAsync(() => _dockerPage?.BeginShutdownAsync() ?? Task.CompletedTask);
         await Task.WhenAll(windowActions, pageActions, workspace, profiles, ssh, terminal, files, mcp, mcpHttp, mcpService, settings, tunnels, docker);
         // Keep mutation admission bound until pending profile writes and terminal owners have joined.
-        if (_profiles is not null) _profiles.BeginTerminalProfileMutationAsync = null;
+        _profiles?.BeginTerminalProfileMutationAsync = null;
         if (_host is { } host)
         {
             await AttemptAsync(() => host.StopAsync());
@@ -157,6 +157,7 @@ public partial class App : Application
             _host = null;
         }
         if (failures.Count != 0) throw new AggregateException("关闭期间部分资源清理失败。", failures);
+        return;
 
         async Task AttemptAsync(Func<Task> cleanup)
         {
