@@ -17,12 +17,10 @@ internal sealed class CappedBufferWriter(int capacity) : IBufferWriter<byte>
     {
         if (sizeHint < 0 || Math.Max(1, sizeHint) > capacity - _count) throw new InvalidDataException("Output limit.");
         var required = _count + Math.Max(1, sizeHint);
-        if (required > _buffer.Length)
-        {
-            var length = _buffer.Length;
-            while (length < required) length = (int)Math.Min(capacity, (long)length * 2);
-            Array.Resize(ref _buffer, length);
-        }
+        if (required <= _buffer.Length) return _buffer.AsMemory(_count);
+        var length = _buffer.Length;
+        while (length < required) length = (int)Math.Min(capacity, (long)length * 2);
+        Array.Resize(ref _buffer, length);
         return _buffer.AsMemory(_count);
     }
     public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
