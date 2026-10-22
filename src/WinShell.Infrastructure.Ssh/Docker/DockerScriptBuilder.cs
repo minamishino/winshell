@@ -37,12 +37,13 @@ public static class DockerScriptBuilder
     {
         var identifier = Identifier(containerId);
         ValidateText(command, 4096);
-        if (string.IsNullOrWhiteSpace(command)) throw new DockerException(DockerFailureKind.InvalidInput, "请输入一次性容器命令。");
-        return Finish("container exec " + identifier + " '/bin/sh' '-c' " + Quote(command));
+        return string.IsNullOrWhiteSpace(command)
+            ? throw new DockerException(DockerFailureKind.InvalidInput, "请输入一次性容器命令。")
+            : Finish("container exec " + identifier + " '/bin/sh' '-c' " + Quote(command));
     }
     internal static string Identifier(string containerId)
     {
-        if (containerId is null || containerId.Length != 64 || containerId.Any(character => !(character is >= '0' and <= '9' or >= 'a' and <= 'f')))
+        if (containerId is null || containerId.Length != 64 || containerId.Any(character => character is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
             throw new DockerException(DockerFailureKind.InvalidInput, "容器标识必须为完整的 64 位小写十六进制 ID。");
         return Quote(containerId);
     }
@@ -57,7 +58,7 @@ public static class DockerScriptBuilder
         ValidateText(script, 8192);
         return script;
     }
-    internal static void ValidateText(string value, int maximumBytes)
+    internal static void ValidateText(string? value, int maximumBytes)
     {
         try
         {
