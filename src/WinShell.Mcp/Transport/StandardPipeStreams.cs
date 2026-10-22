@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 namespace WinShell.Mcp.Transport;
 
 /// <summary>Duplicate owned synchronous pipe handles; .NET FileStream supplies cancellable async-over-sync IO.</summary>
-public static class StandardPipeStreams
+public static partial class StandardPipeStreams
 {
     public static FileStream OpenInput() => Open(-10, FileAccess.Read);
     public static FileStream OpenOutput() => Open(-11, FileAccess.Write);
@@ -22,11 +22,11 @@ public static class StandardPipeStreams
         catch { duplicate.Dispose(); throw; }
     }
 
-    [DllImport("kernel32.dll")] private static extern nint GetStdHandle(int identifier);
-    [DllImport("kernel32.dll")] private static extern uint GetFileType(nint handle);
-    [DllImport("kernel32.dll")] private static extern nint GetCurrentProcess();
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [LibraryImport("kernel32.dll")] private static partial nint GetStdHandle(int identifier);
+    [LibraryImport("kernel32.dll")] private static partial uint GetFileType(nint handle);
+    [LibraryImport("kernel32.dll")] private static partial nint GetCurrentProcess();
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DuplicateHandle(nint sourceProcess, nint sourceHandle, nint targetProcess,
+    private static partial bool DuplicateHandle(nint sourceProcess, nint sourceHandle, nint targetProcess,
         out SafeFileHandle targetHandle, uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint options);
 }
