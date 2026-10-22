@@ -5,7 +5,7 @@ using WinShell.Core.Ssh;
 namespace WinShell.App.Features.Files;
 
 // UI-affine. Network progress writes only a latest snapshot; the page samples it every 100 ms.
-public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts,
+public sealed partial class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHostRepository knownHosts,
     Func<RemoteFileConnectResult.UnknownHostKey, CancellationToken, Task<bool>> confirm,
     Func<ConnectionProfile, CancellationToken, Task<bool>>? confirmPlaintext = null) : ObservableObject, IAsyncDisposable
 {
@@ -17,21 +17,24 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     private Task _operation = Task.CompletedTask;
     private Task? _disposal;
     private Exception? _cleanupFailure;
-    private bool _busy, _disposed;
+    private bool _disposed;
     private bool _lastNotifiedReady;
-    private string _path = "/", _status = "", _progressText = "";
-    private IReadOnlyList<RemoteFileEntry> _entries = [];
+
     private FileTransferProgress? _latestProgress;
-    public bool IsBusy { get => _busy; private set { if (SetProperty(ref _busy, value)) NotifyState(); } }
+    public bool IsBusy { get; private set { if (SetProperty(ref field, value)) NotifyState(); } }
     public bool IsReady => _session?.IsReady == true;
     public bool CanConnect => !_disposed && !IsBusy && !IsReady;
     public bool CanBrowse => !_disposed && !IsBusy && IsReady;
     public bool CanCancel => !_disposed && IsBusy;
     public bool ShowConnectionPrompt => !IsReady && !IsBusy;
-    public string Path { get => _path; set => SetProperty(ref _path, value); }
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
-    public string ProgressText { get => _progressText; private set => SetProperty(ref _progressText, value); }
-    public IReadOnlyList<RemoteFileEntry> Entries { get => _entries; private set => SetProperty(ref _entries, value); }
+    [ObservableProperty]
+    public partial string Path { get; set; } = "/";
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "";
+    [ObservableProperty]
+    public partial string ProgressText { get; private set; } = "";
+    [ObservableProperty]
+    public partial IReadOnlyList<RemoteFileEntry> Entries { get; private set; } = [];
     public Guid? ConnectedProfileId { get; private set; }
     private string _listedPath = "/";
     public Task ConnectAsync(ConnectionProfile profile) => RunAsync(async token =>
@@ -97,7 +100,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     private Task RunAsync(Func<CancellationToken, Task> action)
     {
         if (_disposed || IsBusy) return _operation;
-        _cancellation = new(); IsBusy = true; ProgressText = ""; Interlocked.Exchange(ref _latestProgress, null);
+        _cancellation = new CancellationTokenSource(); IsBusy = true; ProgressText = ""; Interlocked.Exchange(ref _latestProgress, null);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _operation = completion.Task;
         _ = CompleteAsync(); return completion.Task;
@@ -115,7 +118,7 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     }
     private static string Describe(Exception error)
     {
-        var message = error is OperationCanceledException ? "操作已取消；连接已弃用。" : error is SshConnectionException or ArgumentException or IOException or InvalidOperationException ? error.Message : "远端文件操作失败。";
+        var message = error switch { OperationCanceledException => "操作已取消；连接已弃用。", SshConnectionException or ArgumentException or IOException or InvalidOperationException => error.Message, _ => "远端文件操作失败。" };
         if (error.Data["RemoteTemporaryFile"] is string remote) message += $" 远端临时文件可能残留：{remote}";
         if (error.Data["RemoteTemporaryOwnershipConfirmed"] is false) message += " 创建结果和所有权未确认；未自动删除该路径。";
         if (error.Data["RemoteDestinationFile"] is string destination) message += $" 提交结果未确认，目标可能已创建：{destination}。请检查远端状态后再操作；未自动重试或删除目标。";
@@ -137,9 +140,9 @@ public sealed class FilesViewModel(IRemoteFileSessionFactory factory, IKnownHost
     }
     public ValueTask DisposeAsync()
     {
-        if (_disposal is not null) return new(_disposal);
+        if (_disposal is not null) return new ValueTask(_disposal);
         _disposed = true; Cancel(); NotifyState();
-        _disposal = DisposeCoreAsync(); return new(_disposal);
+        _disposal = DisposeCoreAsync(); return new ValueTask(_disposal);
     }
     private async Task DisposeCoreAsync() { await _operation; await CloseSessionAsync(); if (_cleanupFailure is not null) throw new AggregateException("文件会话清理失败。", _cleanupFailure); }
 }
