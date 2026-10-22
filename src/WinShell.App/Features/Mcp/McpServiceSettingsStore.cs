@@ -71,7 +71,7 @@ public sealed class McpServiceSettingsStore(string configurationRoot)
     private async Task<McpServiceSettings> ReadCoreAsync(CancellationToken token)
     {
         var path = Path.Combine(_directory, "options.json"); CheckPath(path);
-        if (!File.Exists(path)) return new();
+        if (!File.Exists(path)) return new McpServiceSettings();
         await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
         if (input.Length > MaximumBytes) throw new InvalidDataException("settings_invalid");
         var bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
@@ -107,7 +107,10 @@ public sealed class McpServiceSettingsStore(string configurationRoot)
         }
     }
     private static SecurityIdentifier CurrentUser()
-    { using var identity = WindowsIdentity.GetCurrent(); return identity.User ?? throw new UnauthorizedAccessException(); }
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.User ?? throw new UnauthorizedAccessException();
+    }
     private static void SecureFile(string path)
     {
         var security = new FileSecurity(); security.SetAccessRuleProtection(true, false); security.SetOwner(CurrentUser());
