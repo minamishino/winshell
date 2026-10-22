@@ -92,10 +92,8 @@ public static class ProfileStorageAccess
         {
             return false;
         }
-        if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
-        {
-            throw new IOException("配置文件不能是重解析点或目录。");
-        }
-        return true;
+        return (attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) == 0
+            ? true
+            : throw new IOException("配置文件不能是重解析点或目录。");
     }
 }
