@@ -42,10 +42,12 @@ public sealed partial class TunnelsPage
     {
         SaveButton?.IsEnabled = Profiles.SelectedItem is ConnectionProfile;
     }
+    // WinUI's generated XAML hookup binds this handler through an instance reference.
+    // ReSharper disable once MemberCanBeMadeStatic.Local
     private void Definitions_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         AutomationProperties.SetName(args.ItemContainer,
-            !args.InRecycleQueue && args.Item is TunnelRowViewModel row ? row.Name : string.Empty);
+            args is { InRecycleQueue: false, Item: TunnelRowViewModel row } ? row.Name : string.Empty);
     }
     private void Kind_SelectionChanged(object sender,SelectionChangedEventArgs args) { TargetFields?.Visibility=Kind.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible; }
     private void Definitions_SelectionChanged(object sender,SelectionChangedEventArgs args)
