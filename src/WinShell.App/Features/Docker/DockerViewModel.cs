@@ -6,38 +6,36 @@ using WinShell.Core.Ssh;
 
 namespace WinShell.App.Features.Docker;
 
-public sealed class DockerViewModel(IDockerService service, IConnectionProfileRepository profiles, IKnownHostRepository knownHosts,
+public sealed partial class DockerViewModel(IDockerService service, IConnectionProfileRepository profiles, IKnownHostRepository knownHosts,
     Func<string, string, CancellationToken, Task<bool>> confirm) : ObservableObject, IAsyncDisposable
 {
     public ObservableCollection<ConnectionProfile> Profiles { get; } = [];
     public ObservableCollection<DockerContainerSummary> Containers { get; } = [];
-    private ConnectionProfile? _selectedProfile;
+
     private DockerContainerSummary? _selectedContainer;
-    private string _commandText = "", _output = "", _status = "选择保存的 SSH 配置并验证 Docker。";
-    private bool _isBusy, _disposed;
+
+    private bool _disposed;
     private int _generation;
     private CancellationTokenSource? _operationCancellation;
     private Task _pending = Task.CompletedTask;
-    private DockerTerminalShell _selectedShell;
-    private bool _terminalCapacityAvailable = true;
-    public IReadOnlyList<DockerTerminalShell> TerminalShells { get; } = new[] { DockerTerminalShell.Sh, DockerTerminalShell.Bash };
+    public IReadOnlyList<DockerTerminalShell> TerminalShells { get; } = (DockerTerminalShell[])[DockerTerminalShell.Sh, DockerTerminalShell.Bash];
     public DockerTerminalShell SelectedShell
     {
-        get => _selectedShell;
-        set { if (SetProperty(ref _selectedShell, value)) InvalidateSelection(); }
+        get;
+        set { if (SetProperty(ref field, value)) InvalidateSelection(); }
     }
     public bool TerminalCapacityAvailable
     {
-        get => _terminalCapacityAvailable;
-        set { if (SetProperty(ref _terminalCapacityAvailable, value)) OnPropertyChanged(nameof(CanOpenTerminal)); }
-    }
+        get;
+        set { if (SetProperty(ref field, value)) OnPropertyChanged(nameof(CanOpenTerminal)); }
+    } = true;
     public bool CanOpenTerminal => CanAct && TerminalCapacityAvailable && SelectedProfile is not null && SelectedContainer is not null && Containers.Any(item => ReferenceEquals(item, SelectedContainer));
     public ConnectionProfile? SelectedProfile
     {
-        get => _selectedProfile;
+        get;
         set
         {
-            if (!SetProperty(ref _selectedProfile, value)) return;
+            if (!SetProperty(ref field, value)) return;
             InvalidateSelection(); Containers.Clear(); SelectedContainer = null;
         }
     }
@@ -50,15 +48,19 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     {
         _generation++; Cancel(); Output = ""; Status = "目标已变更，请验证或刷新。"; OnPropertyChanged(nameof(CanOpenTerminal));
     }
-    public string CommandText { get => _commandText; set => SetProperty(ref _commandText, value); }
-    public string Output { get => _output; private set => SetProperty(ref _output, value); }
-    public string Status { get => _status; private set => SetProperty(ref _status, value); }
+    [ObservableProperty]
+    public partial string CommandText { get; set; } = "";
+    [ObservableProperty]
+    public partial string Output { get; private set; } = "";
+    [ObservableProperty]
+    public partial string Status { get; private set; } = "选择保存的 SSH 配置并验证 Docker。";
     public bool IsBusy
     {
-        get => _isBusy;
-        private set { if (SetProperty(ref _isBusy, value)) { OnPropertyChanged(nameof(CanAct)); OnPropertyChanged(nameof(CanOpenTerminal)); } }
+        get;
+        private set { if (!SetProperty(ref field, value)) return; OnPropertyChanged(nameof(CanAct)); OnPropertyChanged(nameof(CanOpenTerminal)); }
     }
     public bool CanAct => !IsBusy && !_disposed;
+    public void ReportActionFailure() => Status = "Docker 页面操作未能完成，请重试。";
     public Task LoadProfilesAsync() => OwnAsync(async (generation, token) =>
     {
         var result = await profiles.ReadAsync(token);
@@ -134,8 +136,9 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     {
         if (result.HostKeyChallenge is not null) { Status = "主机公钥尚未信任，请先验证并刷新 Docker 列表。操作未执行。"; return false; }
         Output = result.StandardOutput + (result.StandardError.Length == 0 ? "" : "\n标准错误：\n" + result.StandardError);
-        if (result.ExitStatus != 0) { Status = $"Docker 返回退出码 {result.ExitStatus}；请检查输出、CLI 安装及 Unix socket 权限。"; return false; }
-        return true;
+        if (result.ExitStatus == 0) return true;
+        Status = $"Docker 返回退出码 {result.ExitStatus}；请检查输出、CLI 安装及 Unix socket 权限。";
+        return false;
     }
     private Task OwnAsync(Func<int, CancellationToken, Task> action)
     {
@@ -170,6 +173,6 @@ public sealed class DockerViewModel(IDockerService service, IConnectionProfileRe
     public ValueTask DisposeAsync()
     {
         _disposed = true; _generation++; Cancel(); OnPropertyChanged(nameof(CanAct)); OnPropertyChanged(nameof(CanOpenTerminal));
-        return new(_pending);
+        return new ValueTask(_pending);
     }
 }
