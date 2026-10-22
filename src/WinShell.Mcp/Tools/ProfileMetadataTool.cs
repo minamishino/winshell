@@ -1,11 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ModelContextProtocol.Protocol;
 using WinShell.Core.Profiles;
 using WinShell.Mcp.Authorization;
 
 namespace WinShell.Mcp.Tools;
 
-public sealed class ProfileMetadataTool(McpGrantSnapshot grants, Func<IConnectionProfileRepository> repositoryFactory)
+public sealed partial class ProfileMetadataTool(McpGrantSnapshot grants, Func<IConnectionProfileRepository> repositoryFactory)
 {
     private readonly Lazy<IConnectionProfileRepository> _repository = new(repositoryFactory);
     private int _activeCalls;
@@ -39,12 +40,12 @@ public sealed class ProfileMetadataTool(McpGrantSnapshot grants, Func<IConnectio
             {
                 timeout.Token.ThrowIfCancellationRequested();
                 if (profile.Protocol != ConnectionProtocol.Ssh || !grants.Allows(profile.Id, McpGrantSnapshot.ProfileListScope)) continue;
-                if (profile.DisplayName is null || profile.DisplayName.Length > 256 || !seenIds.Add(profile.Id) || metadata.Count == 64)
+                if (profile.DisplayName is not { Length: <= 256 } || !seenIds.Add(profile.Id) || metadata.Count == 64)
                     return Error("metadata_limit");
-                metadata.Add(new(profile.Id, profile.DisplayName, "ssh"));
+                metadata.Add(new ProfileMetadata(profile.Id, profile.DisplayName, "ssh"));
             }
             // At most 64 x (256 UTF-16 chars escaped to <= 6 bytes + fixed fields), before SDK SerializeToNode.
-            return Text(JsonSerializer.Serialize(metadata));
+            return Text(JsonSerializer.Serialize(metadata, MetadataJsonContext.Default.ProfileMetadataList));
         }
         catch (OperationCanceledException) { return Error("cancelled"); }
         catch (UnauthorizedAccessException) { return Error("permission_denied"); }
@@ -54,9 +55,13 @@ public sealed class ProfileMetadataTool(McpGrantSnapshot grants, Func<IConnectio
     }
 
     private sealed record ProfileMetadata(
-        [property: System.Text.Json.Serialization.JsonPropertyName("id")] Guid Id,
-        [property: System.Text.Json.Serialization.JsonPropertyName("displayName")] string DisplayName,
-        [property: System.Text.Json.Serialization.JsonPropertyName("protocol")] string Protocol);
+        [property: JsonPropertyName("id")] Guid Id,
+        [property: JsonPropertyName("displayName")] string DisplayName,
+        [property: JsonPropertyName("protocol")] string Protocol);
+
+    [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Serialization)]
+    [JsonSerializable(typeof(List<ProfileMetadata>), TypeInfoPropertyName = "ProfileMetadataList")]
+    private sealed partial class MetadataJsonContext : JsonSerializerContext;
     private static CallToolResult Text(string text) => new() { Content = [new TextContentBlock { Text = text }] };
     private static CallToolResult Error(string code) => new() { IsError = true, Content = [new TextContentBlock { Text = code }] };
 }
