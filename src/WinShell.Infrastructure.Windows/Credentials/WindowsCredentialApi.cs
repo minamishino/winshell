@@ -8,12 +8,10 @@ internal sealed class WindowsCredentialApi : IWindowsCredentialApi
 {
     public void Delete(string targetName)
     {
-        if (!CredentialNativeMethods.Delete(targetName, CredentialNativeMethods.GenericCredentialType, 0))
-        {
-            var errorCode = Marshal.GetLastPInvokeError();
-            if (errorCode != CredentialNativeMethods.ErrorNotFound)
-                throw new Win32Exception(errorCode, "Windows Credential Manager delete failed.");
-        }
+        if (CredentialNativeMethods.Delete(targetName, CredentialNativeMethods.GenericCredentialType, 0)) return;
+        var errorCode = Marshal.GetLastPInvokeError();
+        if (errorCode != CredentialNativeMethods.ErrorNotFound)
+            throw new Win32Exception(errorCode, "Windows Credential Manager delete failed.");
     }
     public unsafe CredentialSecret? Read(string targetName)
     {
@@ -23,9 +21,9 @@ internal sealed class WindowsCredentialApi : IWindowsCredentialApi
         {
             if (!succeeded)
             {
-                if (errorCode == CredentialNativeMethods.ErrorNotFound)
-                    return null;
-                throw new Win32Exception(errorCode, "Windows Credential Manager read failed.");
+                return errorCode == CredentialNativeMethods.ErrorNotFound
+                    ? null
+                    : throw new Win32Exception(errorCode, "Windows Credential Manager read failed.");
             }
             if (credentialHandle.IsInvalid)
                 throw new IOException("Windows Credential Manager returned an invalid allocation.");
