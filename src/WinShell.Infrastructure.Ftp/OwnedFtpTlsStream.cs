@@ -10,7 +10,7 @@ namespace WinShell.Infrastructure.Ftp;
 // Fluent's public custom-TLS boundary hands us the actual socket. No protocol parsing lives here.
 internal sealed class OwnedFtpTlsStream : IFtpStream
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private Socket? _socket;
     private SslStream? _stream;
     private TimeSpan _deadline;
@@ -20,10 +20,6 @@ internal sealed class OwnedFtpTlsStream : IFtpStream
     {
         get; private set;
     }
-    public OwnedFtpTlsStream()
-    {
-    } // Required by the mature CustomStream factory.
-
     public void Init(BaseFtpClient client, string targetHost, Socket socket,
         CustomRemoteCertificateValidationCallback validateCertificate, bool isControl,
         IFtpStream controlConnStream, IFtpStreamConfig config)
@@ -77,7 +73,7 @@ internal sealed class OwnedFtpTlsStream : IFtpStream
     private async Task CloseAsync()
     {
         using var deadline = new CancellationTokenSource(_deadline);
-        using var abort = deadline.Token.Register(AbortSocket);
+        await using var abort = deadline.Token.Register(AbortSocket);
         try
         {
             if (_authenticated && _stream is not null)
