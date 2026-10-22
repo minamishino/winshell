@@ -36,6 +36,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionOwner> _statefulSessions = new(StringComparer.Ordinal);
     private readonly HashSet<HttpContext> _requests = [];
     private readonly HashSet<Task> _cleanupTasks = [];
+    private readonly HttpClient _sessionCleanupClient;
     private WebApplication? _application;
     private Task? _startTask, _closeTask;
     private int _ordinaryLeases, _controlLeases, _maximumHttp, _maximumSessions, _maximumLeases, _expired, _capacityStops, _cleanupFailures;
@@ -45,7 +46,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
     public McpLocalHttpState State { get { lock (_gate) return _state; } }
     public McpLocalHttpStatistics Statistics
     {
-        get { lock (_gate) return new(_requests.Count, _sessions.Count, _ordinaryLeases + _controlLeases,
+        get { lock (_gate) return new McpLocalHttpStatistics(_requests.Count, _sessions.Count, _ordinaryLeases + _controlLeases,
             _maximumHttp, _maximumSessions, _maximumLeases, _expired, _capacityStops, _cleanupFailures); }
     }
     public McpLocalHttpHost(McpLocalHttpOptions options, McpToolService tools, CredentialSecret secret)
@@ -59,12 +60,16 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         _options = options; _limits = limits; _handlers = handlers;
         _authorizationBytes = Encoding.ASCII.GetBytes("Bearer " + Convert.ToBase64String(secret.Bytes.Span));
         _authorizationHash = SHA256.HashData(_authorizationBytes);
+        _sessionCleanupClient = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
+        {
+            Timeout = TimeSpan.FromSeconds(5)
+        };
     }
     public Task StartAsync(CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            if (_closeTask is not null) throw new ObjectDisposedException(nameof(McpLocalHttpHost));
+            ObjectDisposedException.ThrowIf(_closeTask is not null, this);
             return _startTask ??= StartCoreAsync(cancellationToken);
         }
     }
@@ -117,7 +122,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         transport.IdleTimeout = TimeSpan.FromMinutes(1);
         transport.MaxIdleSessionCount = 4;
 #pragma warning restore MCP9004, MCP9006
-        transport.ConfigureSessionOptions = (context, server, token) =>
+        transport.ConfigureSessionOptions = (context, server, _) =>
         {
             SessionOwner owner;
             lock (_gate)
@@ -157,7 +162,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
             finally
             {
                 owner.Stop(false);
-                if (!owner.IsSse && owner.SessionId is not null && !_stop.IsCancellationRequested)
+                if (owner is { IsSse: false, SessionId: not null } && !_stop.IsCancellationRequested)
                     QueueOfficialSessionDeletion(owner);
                 // Stateless/SSE stay admitted through the SDK transport.Dispose and HTTP middleware;
                 // shutdown releases remaining owners only after the official host has stopped and joined.
@@ -176,12 +181,11 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
                 if (owner.RunTask is { } run) await run.ConfigureAwait(false);
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
                 deadline.CancelAfter(TimeSpan.FromSeconds(5));
-                using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(5) };
                 using var request = new HttpRequestMessage(HttpMethod.Delete, Endpoint);
                 request.Headers.TryAddWithoutValidation("Authorization", Encoding.ASCII.GetString(_authorizationBytes));
                 request.Headers.TryAddWithoutValidation("Mcp-Session-Id", owner.SessionId);
                 request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", "2025-11-25");
-                using var response = await http.SendAsync(request, deadline.Token).ConfigureAwait(false);
+                using var response = await _sessionCleanupClient.SendAsync(request, deadline.Token).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound) FailCleanup();
                 // SDK DELETE removes its dictionary entry before transport disposal. A racing DELETE
                 // may return 404 while the first DELETE is still disposing: join both admitted endpoints.
@@ -205,7 +209,8 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
 
     private async Task IncomingAsync(SessionOwner owner, McpMessageHandler next, MessageContext context, CancellationToken cancellationToken)
     {
-        var control = context.JsonRpcMessage is JsonRpcResponse or JsonRpcError || context.JsonRpcMessage is JsonRpcNotification { Method: "notifications/cancelled" or "notifications/initialized" };
+        var control = context.JsonRpcMessage is JsonRpcResponse or JsonRpcError or
+            JsonRpcNotification { Method: "notifications/cancelled" or "notifications/initialized" };
         lock (_gate)
         {
             if (owner.Stopping.IsCancellationRequested) return;
@@ -216,7 +221,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         }
         using var message = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, owner.Stopping);
         message.CancelAfter(_limits.MessageLifetime);
-        using var expiration = message.Token.Register(() => owner.Stop(false));
+        await using var expiration = message.Token.Register(() => owner.Stop(false));
         try
         {
             ValidateMessage(context.JsonRpcMessage);
@@ -228,7 +233,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         }
         catch { owner.Stop(false); /* No additional SDK error send after stopping; ownership retained until session disposal. */ }
     }
-    private async Task OutgoingAsync(SessionOwner owner, McpMessageHandler next, MessageContext context, CancellationToken cancellationToken)
+    private static async Task OutgoingAsync(SessionOwner owner, McpMessageHandler next, MessageContext context, CancellationToken cancellationToken)
     {
         if (owner.Stopping.IsCancellationRequested) return;
         try
@@ -241,8 +246,9 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
     }
     private static void ValidateMessage(JsonRpcMessage message)
     {
-        if (message is JsonRpcMessageWithId { Id.Id: string id } && id.Length > 128) throw new InvalidDataException("message_limit");
-        if (message is JsonRpcRequest { Method.Length: > 128 } or JsonRpcNotification { Method.Length: > 128 }) throw new InvalidDataException("message_limit");
+        if (message is JsonRpcMessageWithId { Id.Id: string { Length: > 128 } } or
+            JsonRpcRequest { Method.Length: > 128 } or JsonRpcNotification { Method.Length: > 128 })
+            throw new InvalidDataException("message_limit");
         using var writer = new Utf8JsonWriter(new HttpCappedBuffer(MaximumMessageBytes), new JsonWriterOptions { MaxDepth = 64 });
         JsonSerializer.Serialize(writer, message, McpJsonUtilities.DefaultOptions);
         writer.Flush();
@@ -269,7 +275,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
             if (origin.Count > 0 && (origin.Count != 1 || origin[0] != Endpoint!.GetLeftPart(UriPartial.Authority)))
             { context.Response.StatusCode = 403; return; }
             var authorization = context.Request.Headers.Authorization;
-            if (authorization.Count != 1 || authorization[0] is not { Length: 51 } value ||
+            if (authorization is not [ { Length: 51 } value ] ||
                 !CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.ASCII.GetBytes(value)), _authorizationHash))
             { context.Response.StatusCode = 401; return; }
             context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "winshell-local-http")], "LocalBearer"));
@@ -279,7 +285,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
                 {
                     if (_statefulSessions.TryGetValue(context.Request.Headers["Mcp-Session-Id"].ToString(), out deletionOwner))
                     {
-                        deletionJoined = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                        deletionJoined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         deletionOwner.DeleteTasks.Add(deletionJoined.Task);
                     }
                 }
@@ -330,7 +336,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         {
             context.Response.Body = originalOutput;
             context.Request.Body = originalInput;
-            boundedInput?.Dispose();
+            if (boundedInput is not null) await boundedInput.DisposeAsync().ConfigureAwait(false);
             var owner = context.Features.Get<SessionOwner>();
             if (owner is not null && (owner.IsSse || owner.SessionId is null || !owner.Started)) await ReleaseOwnerAsync(owner).ConfigureAwait(false);
             lock (_gate)
@@ -367,8 +373,12 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
     }
     private async Task CloseCoreAsync()
     {
-        _stop.Cancel();
-        try { if (_startTask is { } start) await start.ConfigureAwait(false); } catch { }
+        await _stop.CancelAsync().ConfigureAwait(false);
+        try { if (_startTask is { } start) await start.ConfigureAwait(false); }
+        catch
+        {
+            // StartAsync owns the original failure; shutdown must still dispose a partially started host.
+        }
         lock (_gate) { _state = McpLocalHttpState.Closing; foreach (var owner in _sessions) owner.Stop(false); foreach (var request in _requests) request.Abort(); }
         try
         {
@@ -384,7 +394,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
             lock (_gate) _state = McpLocalHttpState.Closed;
         }
         catch { lock (_gate) _state = McpLocalHttpState.Failed; throw; }
-        finally { CryptographicOperations.ZeroMemory(_authorizationHash); CryptographicOperations.ZeroMemory(_authorizationBytes); _stop.Dispose(); }
+        finally { _sessionCleanupClient.Dispose(); CryptographicOperations.ZeroMemory(_authorizationHash); CryptographicOperations.ZeroMemory(_authorizationBytes); _stop.Dispose(); }
     }
     public async Task WaitForShutdownAsync(CancellationToken cancellationToken)
     {
@@ -407,7 +417,7 @@ public sealed class McpLocalHttpHost : IAsyncDisposable
         private readonly HttpContext _context;
         private readonly CancellationTokenSource _stopping = new();
         private readonly Timer _timer;
-        private readonly object _closeGate = new();
+        private readonly Lock _closeGate = new();
         private Task? _closeTask;
         private int _stopped;
         internal bool Started;
