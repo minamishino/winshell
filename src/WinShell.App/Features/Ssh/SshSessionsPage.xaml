@@ -2,17 +2,22 @@
     x:Class="WinShell.App.Features.Ssh.SshSessionsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WinShell.App.Features.Ssh"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=vm:SshWorkspaceViewModel, IsDesignTimeCreatable=False}"
     xmlns:ssh="using:WinShell.App.Features.Ssh">
     <Grid RowSpacing="8" Padding="{StaticResource WinShellPagePadding}">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <TextBlock Text="SSH 连接工作区 · 交互式终端尚未接入" TextWrapping="Wrap" Style="{StaticResource WinShellPageTitleStyle}"/>
+        <TextBlock Text="SSH 连接工作区 · 交互式终端尚未接入" Style="{StaticResource WinShellPageTitleStyle}"/>
         <Grid Grid.Row="1">
             <TabView x:Name="SessionTabs" IsAddTabButtonVisible="False" CanDragTabs="False" CanReorderTabs="False"
-                     TabItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                     TabItemsSource="{Binding Path=Tabs}" SelectedItem="{Binding Path=SelectedTab, Mode=TwoWay}"
                      TabCloseRequested="SessionTabs_TabCloseRequested" SelectionChanged="SessionTabs_SelectionChanged" AutomationProperties.Name="SSH 会话标签">
                 <TabView.TabItemTemplate>
                     <DataTemplate x:DataType="ssh:SshSessionViewModel">
-                        <TabViewItem Header="{Binding Title}" IsClosable="True" Loaded="SessionTab_Loaded" AutomationProperties.Name="{Binding Title}">
+                        <TabViewItem Header="{Binding Path=Title}" IsClosable="True" Loaded="SessionTab_Loaded" AutomationProperties.Name="{Binding Path=Title}">
                             <ssh:SshSessionView DataContext="{x:Bind}" Loaded="SessionView_Loaded"/>
                         </TabViewItem>
                     </DataTemplate>
