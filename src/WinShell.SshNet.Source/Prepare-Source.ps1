@@ -44,6 +44,7 @@ if (!$Baseline) {
         # The archive is LF; Git may check the patch out as CRLF. Upstream text attributes
         # also use core.eol on Windows, so pin both settings. No whitespace relaxation.
         [IO.File]::WriteAllText($patch, [IO.File]::ReadAllText($patchInput).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+        if ($patchName -eq 'ShellExec' -and (Get-FileHash -LiteralPath $patch).Hash -ne '24EA0CE85AB92852700AB602FCCA982E3DC085A2C2ABC895281799D3AA001F7C') { throw 'Reviewed ShellExec patch hash mismatch.' }
         if ($patchName -eq 'Sftp' -and (Get-FileHash -LiteralPath $patch).Hash -ne '62EF757CDBE8396AAE1402C6C059EE6A4A48E30F9376AB9072B2F244CE290FA8') { throw 'Reviewed Sftp patch hash mismatch.' }
         if ($patchName -eq 'Forwarding' -and (Get-FileHash -LiteralPath $patch).Hash -ne 'BE3866DCFA7401205D9E12BA6ED534D28197F411D32D3F8DE37C5AF45FB4DB3B') { throw 'Reviewed Forwarding patch hash mismatch.' }
         $patchManifest += [pscustomobject]@{ Path="$patchName.patch"; InputSha256=(Get-FileHash $patchInput).Hash; CanonicalSha256=(Get-FileHash $patch).Hash }
@@ -65,7 +66,7 @@ $expectedChanges = @{
     'src/Renci.SshNet/ForwardedPortDynamic.cs' = @('2098BEAA5269D19E6B61793D7FE7DA2C786441B22DA0067D37E63A2FB10A2FE6','5281310EDAF2A27A26A2E1EFBD0D157B3E537994F5E02ED39C10F6E69A6A9AFE')
     'src/Renci.SshNet/Channels/ChannelDirectTcpip.cs' = @('4B0C943B964E2DBFB04F03A6009625A8699F9E3D98934D9B78B36CCCECC94598','A3AB6A0617F1B8B17A63D56B6181851D1F5ED7F893E97D0FFE9DC80C62C34258')
     'src/Renci.SshNet/Channels/ChannelForwardedTcpip.cs' = @('1057A80CF38DEA3CACC78903F3C2520A1A1711605C6BFE83B50DF9F39F435A77','6DF609CF406F31FD4BBE83DF7E611D1EBDBE32246D61B7992939167EE8B28DF8')
-    'src/Renci.SshNet/Shell.cs' = @('9B4568F25756DD547D9F58210F6F6A599943A7666DCC7EFE5CC1E3F193C430B8','9F8369A20EFF198CAEF82F3899E394D59CB86C16AC2A359E1F7379EA3824C6BA')
+    'src/Renci.SshNet/Shell.cs' = @('9B4568F25756DD547D9F58210F6F6A599943A7666DCC7EFE5CC1E3F193C430B8','A6D402C097CEEA94D2BFA14F04E851577045AD0C80D09A80CCDDA15B86C33160')
     'src/Renci.SshNet/Sftp/SftpSession.cs' = @('C4789D52B3312BBF4CE32BC8E3BF1B9D553998B2F663E914B988E8553871C6AC','3EEC163A974B734DFC9FC1DA06722B0E4699C611A148669D6E8DAA83048107FB')
     'src/Renci.SshNet/Sftp/Responses/SftpNameResponse.cs' = @('AB857C8BC4B25545A05977B2F8C625A4EF900BE77901AEB0F536A52A1D2E18BC','F9713C005445C9306458928E8F1EBB5AE51D4F2E2EDA135081CC8DD49000946F')
     'src/Renci.SshNet/Sftp/SftpFileAttributes.cs' = @('86F6E82BA04EBA4CD8796AFEEC1186603DA7607D0F00118CA728A6BAB347F704','9960CBE1D0F2532BD9D943158332322D849CB6B61BA2CAE1D3EFFB68EC1B9459')
@@ -97,7 +98,7 @@ $manifest = foreach ($originalFile in Get-ChildItem -LiteralPath $originalRoot -
 if (!$Baseline) {
     $shellPath = Join-Path $patchedRoot 'src/Renci.SshNet/Shell.cs'
     $shellHash = (Get-FileHash -LiteralPath $shellPath).Hash
-    if ($shellHash -ne '9F8369A20EFF198CAEF82F3899E394D59CB86C16AC2A359E1F7379EA3824C6BA') { throw 'Exclusive Shell exec source hash mismatch.' }
+    if ($shellHash -ne 'A6D402C097CEEA94D2BFA14F04E851577045AD0C80D09A80CCDDA15B86C33160') { throw 'Exclusive Shell exec source hash mismatch.' }
 }
 $patchManifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $evidenceRoot 'patch-manifest.json') -Encoding utf8
 $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $evidenceRoot 'source-manifest.json') -Encoding utf8
