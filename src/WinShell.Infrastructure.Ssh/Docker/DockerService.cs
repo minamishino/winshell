@@ -6,14 +6,14 @@ namespace WinShell.Infrastructure.Ssh.Docker;
 
 public sealed class DockerService(ISshSessionFactory factory, IConnectionProfileRepository profiles) : IDockerService
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private int _operations;
     public Task<DockerResult> ListContainersAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         // A shell request can emit login startup text before executing our script. Frame only
         // this command's stdout; the preamble still consumes the existing capture byte budget.
         var marker = "WINSHELL_DOCKER_LIST_" + Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-        var script = "printf '\\n%s\\n' '" + marker + "'\n" + DockerScriptBuilder.List();
+        var script = @"printf '\n%s\n' '" + marker + "'\n" + DockerScriptBuilder.List();
         DockerScriptBuilder.ValidateText(script, 8192);
         return RunAsync(profile, script, false, marker, cancellationToken);
     }
@@ -38,7 +38,7 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
             var current = (await profiles.ReadAsync(cancellationToken).ConfigureAwait(false)).Profiles.SingleOrDefault(item => item.Id == profile.Id);
             if (current != profile) throw new SshConnectionException(SshFailureKind.InvalidProfile, "连接配置已更改或删除，请重新选择并确认目标。");
             var connection = await factory.ConnectAsync(current, cancellationToken).ConfigureAwait(false);
-            if (connection is SshConnectResult.UnknownHostKey challenge) return new([], "", "", null, challenge);
+            if (connection is SshConnectResult.UnknownHostKey challenge) return new DockerResult([], "", "", null, challenge);
             session = ((SshConnectResult.Connected)connection).Session;
             if (session is not ISshScriptSession scriptSession) throw new DockerException(DockerFailureKind.Unsupported, "SSH 会话不支持一次性脚本。");
             cancellationToken.ThrowIfCancellationRequested();
@@ -50,7 +50,7 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
             DockerScriptBuilder.ValidateText(result.StandardOutput, 32768);
             DockerScriptBuilder.ValidateText(result.StandardError, 16384);
             var output = listMarker is null ? result.StandardOutput : ReadListOutput(result.StandardOutput, listMarker, result.ExitStatus == 0);
-            return new(listMarker is not null && result.ExitStatus == 0 ? DockerMetadataReader.Read(output) : [], output, result.StandardError, result.ExitStatus);
+            return new DockerResult(listMarker is not null && result.ExitStatus == 0 ? DockerMetadataReader.Read(output) : [], output, result.StandardError, result.ExitStatus);
         }
         catch (Exception exception)
         {
@@ -74,11 +74,10 @@ public sealed class DockerService(ISshSessionFactory factory, IConnectionProfile
     {
         var delimiter = "\n" + marker + "\n";
         var start = output.IndexOf(delimiter, StringComparison.Ordinal);
-        if (start < 0 || output.IndexOf(delimiter, start + 1, StringComparison.Ordinal) >= 0)
-        {
-            if (succeeded) throw new DockerException(DockerFailureKind.InvalidMetadata, "Docker 列表输出起始标记缺失或重复，请检查 SSH 启动脚本；未显示不完整结果。");
-            return output;
-        }
-        return output[(start + delimiter.Length)..];
+        if (start >= 0 && output.IndexOf(delimiter, start + 1, StringComparison.Ordinal) < 0)
+            return output[(start + delimiter.Length)..];
+        return succeeded
+            ? throw new DockerException(DockerFailureKind.InvalidMetadata, "Docker 列表输出起始标记缺失或重复，请检查 SSH 启动脚本；未显示不完整结果。")
+            : output;
     }
 }
