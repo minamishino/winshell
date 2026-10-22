@@ -20,10 +20,9 @@ public sealed class BoundedStdioTransport : ITransport
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly CancellationTokenSource _stop = new();
-    private readonly CancellationToken _stopping;
     private readonly Channel<JsonRpcMessage> _messages = Channel.CreateBounded<JsonRpcMessage>(new BoundedChannelOptions(16)
         { SingleWriter = true, SingleReader = true, FullMode = BoundedChannelFullMode.Wait, AllowSynchronousContinuations = false });
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Dictionary<JsonRpcMessage, (bool Control, long Started)> _leases = new(ReferenceEqualityComparer.Instance);
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly Task _readerTask;
@@ -42,17 +41,17 @@ public sealed class BoundedStdioTransport : ITransport
     {
         _input = input;
         _output = output;
-        _stopping = _stop.Token;
+        Stopping = _stop.Token;
         _readerTask = ReadAsync();
         _deadlineTask = WatchDeadlinesAsync();
     }
     public string? SessionId => null;
     public ChannelReader<JsonRpcMessage> MessageReader => _messages.Reader;
-    public CancellationToken Stopping => _stopping;
+    public CancellationToken Stopping { get; }
     public TransportStopReason StopReason => (TransportStopReason)Volatile.Read(ref _reason);
     public TransportStatistics Statistics
     {
-        get { lock (_gate) return new(_held, _ordinary, _control, _messages.Reader.Count, _sends, _maximumHeld,
+        get { lock (_gate) return new TransportStatistics(_held, _ordinary, _control, _messages.Reader.Count, _sends, _maximumHeld,
             _maximumSends, _readerTask.IsCompleted, _deadlineTask.IsCompleted); }
     }
 
@@ -95,7 +94,7 @@ public sealed class BoundedStdioTransport : ITransport
         {
             while (!_stop.IsCancellationRequested)
             {
-                var read = await _input.ReadAsync(buffer.AsMemory(used), _stopping).ConfigureAwait(false);
+                var read = await _input.ReadAsync(buffer.AsMemory(used), Stopping).ConfigureAwait(false);
                 if (read == 0)
                 {
                     Stop(used == 0 ? TransportStopReason.EndOfInput : TransportStopReason.InputFailure);
@@ -106,7 +105,7 @@ public sealed class BoundedStdioTransport : ITransport
                 while (Array.IndexOf(buffer, (byte)'\n', consumed, used - consumed) is var newline && newline >= 0)
                 {
                     var length = newline - consumed;
-                    if (length == 0 || length > MaximumPayloadBytes) throw new InvalidDataException("Frame limit.");
+                    if (length is 0 or > MaximumPayloadBytes) throw new InvalidDataException("Frame limit.");
                     lock (_gate)
                     {
                         if (_held == 16) { Stop(TransportStopReason.CapacityExceeded); return; }
@@ -146,38 +145,41 @@ public sealed class BoundedStdioTransport : ITransport
         using var document = JsonDocument.Parse(payload, new JsonDocumentOptions { MaxDepth = 64, AllowDuplicateProperties = false });
         var message = document.RootElement.Deserialize<JsonRpcMessage>(McpJsonUtilities.DefaultOptions)
             ?? throw new InvalidDataException("Missing message.");
-        if (message is JsonRpcMessageWithId { Id.Id: string id } && id.Length > 128)
+        if (message is JsonRpcMessageWithId { Id.Id: string { Length: > 128 } })
             throw new InvalidDataException("ID limit.");
         var method = message switch { JsonRpcRequest request => request.Method, JsonRpcNotification notification => notification.Method, _ => null };
         if (method?.Length > 128) throw new InvalidDataException("Method limit.");
-        if (message is JsonRpcRequest { Method: "tools/call", Params: { } parameters })
+        switch (message)
         {
-            var call = parameters.Deserialize<CallToolRequestParams>(McpJsonUtilities.DefaultOptions);
-            if (call?.Name.Length > 128) throw new InvalidDataException("Tool limit.");
-        }
-        if (message is JsonRpcNotification { Method: "notifications/cancelled", Params: { } cancellationParameters })
-        {
-            var cancellation = cancellationParameters.Deserialize<CancelledNotificationParams>(McpJsonUtilities.DefaultOptions);
-            if (cancellation?.RequestId.Id is string cancelledId && cancelledId.Length > 128)
-                throw new InvalidDataException("Cancellation ID limit.");
+            case JsonRpcRequest { Method: "tools/call", Params: { } parameters }:
+                var call = parameters.Deserialize<CallToolRequestParams>(McpJsonUtilities.DefaultOptions);
+                if (call?.Name.Length > 128) throw new InvalidDataException("Tool limit.");
+                break;
+            case JsonRpcNotification { Method: "notifications/cancelled", Params: { } cancellationParameters }:
+                var cancellation = cancellationParameters.Deserialize<CancelledNotificationParams>(McpJsonUtilities.DefaultOptions);
+                if (cancellation?.RequestId.Id is string { Length: > 128 })
+                    throw new InvalidDataException("Cancellation ID limit.");
+                break;
         }
         return message;
     }
 
-    private static bool IsControl(JsonRpcMessage message) => message is JsonRpcResponse or JsonRpcError ||
-        message is JsonRpcNotification { Method: "notifications/cancelled" or "notifications/initialized" } ||
-        message is JsonRpcRequest { Method: "initialize" or "ping" };
+    private static bool IsControl(JsonRpcMessage message) => message is JsonRpcResponse or JsonRpcError or
+        JsonRpcNotification { Method: "notifications/cancelled" or "notifications/initialized" } or
+        JsonRpcRequest { Method: "initialize" or "ping" };
 
     private async Task WatchDeadlinesAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
         try
         {
-            while (await timer.WaitForNextTickAsync(_stopping).ConfigureAwait(false))
+            while (await timer.WaitForNextTickAsync(Stopping).ConfigureAwait(false))
             {
                 bool expired;
                 lock (_gate) expired = _leases.Values.Any(lease => Stopwatch.GetElapsedTime(lease.Started) >= TimeSpan.FromSeconds(30));
-                if (expired) { Stop(TransportStopReason.LeaseExpired); return; }
+                if (!expired) continue;
+                Stop(TransportStopReason.LeaseExpired);
+                return;
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
@@ -187,13 +189,16 @@ public sealed class BoundedStdioTransport : ITransport
     {
         lock (_gate)
         {
-            if (_stop.IsCancellationRequested) throw new OperationCanceledException(_stopping);
-            if (_sends == 16) { Stop(TransportStopReason.CapacityExceeded); throw new IOException("Send capacity."); }
-            if (_sends == 0) _sendsJoined = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (_stop.IsCancellationRequested) throw new OperationCanceledException(Stopping);
+            switch (_sends)
+            {
+                case 16: Stop(TransportStopReason.CapacityExceeded); throw new IOException("Send capacity.");
+                case 0: _sendsJoined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); break;
+            }
             _maximumSends = Math.Max(_maximumSends, ++_sends);
         }
         var acquired = false;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopping);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Stopping);
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
@@ -201,7 +206,7 @@ public sealed class BoundedStdioTransport : ITransport
             acquired = true;
             deadline.Token.ThrowIfCancellationRequested();
             var staging = new CappedBufferWriter(MaximumPayloadBytes);
-            using (var writer = new Utf8JsonWriter(staging))
+            await using (var writer = new Utf8JsonWriter(staging))
                 JsonSerializer.Serialize(writer, message, McpJsonUtilities.DefaultOptions);
             // Nothing reaches stdout until the complete payload has passed the hard capacity check.
             await _output.WriteAsync(staging.WrittenMemory, deadline.Token).ConfigureAwait(false);
