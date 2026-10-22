@@ -295,10 +295,12 @@ public sealed partial class ConnectionProfilesPage
         }
     }
 
+    // WinUI's generated XAML hookup binds this handler through an instance reference.
+    // ReSharper disable once MemberCanBeMadeStatic.Local
     private void ProfilesList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         AutomationProperties.SetName(args.ItemContainer,
-            !args.InRecycleQueue && args.Item is ConnectionProfileListItemViewModel row ? row.DisplayName : string.Empty);
+            args is { InRecycleQueue: false, Item: ConnectionProfileListItemViewModel row } ? row.DisplayName : string.Empty);
     }
 
     public void FocusProfiles() => ProfilesList.Focus(FocusState.Programmatic);
