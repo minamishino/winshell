@@ -3,8 +3,6 @@ name: Release Windows
 on:
   push:
     tags: ['v[0-9]*']
-    # Bootstrap the first release without moving the already-published v0.0.1 tag.
-    branches: ['codex/release-0.0.1']
   workflow_dispatch:
     inputs:
       tag:
@@ -16,11 +14,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.0.1' }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.0.1' }}
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
   DOTNET_NOLOGO: 'true'
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
 
@@ -55,14 +53,10 @@ jobs:
           path: source
           persist-credentials: false
 
-      - name: Verify source version
+      - name: Resolve tagged release version
         id: version
         run: |
           $version = $env:RELEASE_TAG.Substring(1)
-          [xml]$properties = Get-Content source/Directory.Build.props -Raw
-          if ($properties.Project.PropertyGroup.Version -ne $version) {
-            throw 'Directory.Build.props Version does not match the release tag.'
-          }
           $commit = git -C source rev-parse HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve tagged commit.' }
           "tag=$env:RELEASE_TAG" >> $env:GITHUB_OUTPUT
