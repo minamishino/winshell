@@ -1,8 +1,17 @@
 # Windows release
 
-`.github/workflows/release.yml` builds the exact `vMAJOR.MINOR.PATCH` tag on a Windows runner. `Directory.Build.props` must contain the same version. The publish job runs only after all build and verification steps succeed. It uploads MSI, EXE installer, portable ZIP and `SHA256SUMS.txt`, then publishes the draft release. An already published release is never overwritten.
+`.github/workflows/release.yml` builds the exact `vMAJOR.MINOR.PATCH` tag on a Windows runner. The tag supplies the release version for the application assemblies, MSI, EXE installer, portable ZIP and release notes; no separate edit to the development version in `Directory.Build.props` is required. The publish job runs only after all build and verification steps succeed. It uploads the three binaries and `SHA256SUMS.txt`, then publishes the draft release. An already published release is never overwritten.
 
-For the first release, pushing `codex/release-0.0.1` builds the existing `v0.0.1` tag with the packaging scripts on that branch. This preserves the original tag. Later tags should include this workflow and its scripts. `workflow_dispatch` also accepts an existing tag once the workflow is available on the default branch.
+After committing and pushing the changes to release on `main`, create and push a new tag, for example:
+
+```sh
+git switch main
+git pull --ff-only
+git tag -a v0.0.2 -m "WinShell 0.0.2"
+git push origin v0.0.2
+```
+
+Pushing the tag triggers the complete build and publication automatically. Ordinary branch pushes do not publish a release. `workflow_dispatch` also accepts an existing tag from the Actions page. Tags must use three numeric components, such as `v0.0.2`, and must include this workflow and its packaging scripts.
 
 ## Build locally
 
