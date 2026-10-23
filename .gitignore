@@ -36,7 +36,6 @@ known_hosts.local
 /tests/
 /prototypes/
 /AGENTS.md
-/README.md
 /src/WinShell.Infrastructure.Ssh/README.md
 /src/WinShell.App/Features/Docker/DockerPage.UiProbe.cs
 /src/WinShell.App/FtpRuntimeVerification.cs
