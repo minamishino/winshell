@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="WinShell"
+          Manufacturer="minamishino"
+          Version="$(Version)"
+          UpgradeCode="{5CB67E99-E310-40F0-869A-7C51C7207B6D}"
+          IconSourceFile="$(IconPath)"
+          AboutUrl="https://github.com/minamishino/winshell"
+          Compressed="yes">
+    <bal:Condition Condition="WixBundleInstalled OR (WindowsBuildNumber &gt;= 19045 AND NativeMachine = 34404)"
+                   Message="WinShell requires x64 Windows 10 version 22H2 (build 19045) or newer." />
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="rtfLicense"
+                                             LicenseFile="$(LicenseRtfPath)"
+                                             ShowVersion="yes"
+                                             SuppressOptionsUI="yes"
+                                             LaunchTarget="[LocalAppDataFolder]Programs\WinShell\WinShell.App.exe"
+                                             LaunchWorkingFolder="[LocalAppDataFolder]Programs\WinShell" />
+    </BootstrapperApplication>
+    <Chain>
+      <!-- Embed the exact standalone MSI; Burn detects its ProductCode. -->
+      <MsiPackage Id="WinShellMsi" SourceFile="$(MsiPath)" Compressed="yes" Visible="no" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

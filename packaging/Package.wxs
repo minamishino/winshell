@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="WinShell"
+           Manufacturer="minamishino"
+           Version="$(Version)"
+           Language="1033"
+           ProductCode="$(ProductCode)"
+           UpgradeCode="{48DE7B51-A4D3-45FC-9F88-2C4F095E0DF0}"
+           Scope="perUser"
+           InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of WinShell is already installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPPRODUCTICON" Value="WinShellIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/minamishino/winshell" />
+    <Icon Id="WinShellIcon" SourceFile="$(IconPath)" />
+
+    <!-- Windows Installer's VersionNT does not reliably identify modern Windows. -->
+    <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
+      <RegistrySearch Id="WindowsBuildNumberSearch" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentBuildNumber" Type="raw" Bitness="always64" />
+    </Property>
+    <util:QueryNativeMachine />
+    <Launch Condition="Installed OR (WINDOWSBUILDNUMBER &gt;= 19045 AND WIX_NATIVE_MACHINE = 34404)"
+            Message="WinShell requires x64 Windows 10 version 22H2 (build 19045) or newer." />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="WinShell" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="WinShellMenuFolder" Name="WinShell">
+        <Component Id="StartMenuShortcut" Guid="{A80B2334-975D-45B8-9CB2-D04044385A89}">
+          <Shortcut Id="WinShellStartMenuShortcut" Name="WinShell"
+                    Target="[INSTALLFOLDER]WinShell.App.exe"
+                    WorkingDirectory="INSTALLFOLDER" Icon="WinShellIcon" />
+          <RegistryValue Root="HKCU" Key="Software\minamishino\WinShell\Installer"
+                         Name="InstallDirectory" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+          <RemoveFolder Id="RemoveWinShellMenuFolder" On="uninstall" />
+          <RemoveFolder Id="RemoveWinShellInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="WinShellApplication" Title="WinShell" Level="1">
+      <Files Directory="INSTALLFOLDER" Include="$(PublishDirectory)\**" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtfPath)" />
+  </Package>
+</Wix>

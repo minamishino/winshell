@@ -1,0 +1,192 @@
+name: Release Windows
+
+on:
+  push:
+    tags: ['v[0-9]*']
+    # Bootstrap the first release without moving the already-published v0.0.1 tag.
+    branches: ['codex/release-0.0.1']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish (for example v0.0.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.0.1' }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.0.1' }}
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tooling
+          persist-credentials: false
+
+      - name: Validate requested tag
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw 'Release tag must be vMAJOR.MINOR.PATCH.'
+          }
+
+      - name: Check out exact tagged application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          path: source
+          persist-credentials: false
+
+      - name: Verify source version
+        id: version
+        run: |
+          $version = $env:RELEASE_TAG.Substring(1)
+          [xml]$properties = Get-Content source/Directory.Build.props -Raw
+          if ($properties.Project.PropertyGroup.Version -ne $version) {
+            throw 'Directory.Build.props Version does not match the release tag.'
+          }
+          $commit = git -C source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve tagged commit.' }
+          "tag=$env:RELEASE_TAG" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: source/global.json
+          cache: true
+          cache-dependency-path: source/**/packages.lock.json
+
+      - name: Install pinned WiX
+        run: |
+          dotnet tool install wix --version 7.0.0 --tool-path "$env:RUNNER_TEMP/wix"
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed.' }
+
+      - name: Build self-contained MSI, EXE and ZIP
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./tooling/packaging/Publish-Release.ps1 `
+            -SourceDirectory ./source -OutputDirectory ./output `
+            -DotnetExecutable (Get-Command dotnet).Source `
+            -WixExecutable "$env:RUNNER_TEMP/wix/wix.exe" `
+            -Version $env:RELEASE_VERSION -AcceptWixEula
+
+      - name: Run MCP launch regression checks
+        working-directory: source
+        run: |
+          dotnet run --project ../tooling/packaging/tests/McpLaunch.Tests.csproj -c Release "-p:SourceDirectory=$env:GITHUB_WORKSPACE/source" | Tee-Object ../output/logs/mcp-launch-regression.log
+          if ($LASTEXITCODE -ne 0) { throw 'MCP launch regression checks failed.' }
+
+      - name: Check published runtime and protocol startup
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./tooling/packaging/Verify-Runtime.ps1 `
+            -SourceDirectory ./source -PublishDirectory ./output/publish/WinShell `
+            -OutputDirectory ./output/verification/runtime `
+            -DotnetExecutable (Get-Command dotnet).Source -ExpectedVersion $env:RELEASE_VERSION
+
+      - name: Verify installer payloads
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./tooling/packaging/Verify-Installers.ps1 `
+            -PublishDirectory ./output/publish/WinShell `
+            -MsiPath "./output/assets/WinShell-$env:RELEASE_VERSION-win-x64.msi" `
+            -BundlePath "./output/assets/WinShell-$env:RELEASE_VERSION-win-x64-setup.exe" `
+            -OutputDirectory ./output/verification/installers `
+            -WixExecutable "$env:RUNNER_TEMP/wix/wix.exe" -AcceptWixEula
+
+      - name: Prepare release notes
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          $notes = (Get-Content ./tooling/packaging/Release-Notes.md -Raw).Replace('{{VERSION}}', $env:RELEASE_VERSION)
+          $notes += "`n`n源码提交：$env:SOURCE_COMMIT`n`n[GitHub Actions 构建记录]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID)`n"
+          $notes | Set-Content ./output/RELEASE-NOTES.md -Encoding utf8
+
+      - name: Preserve build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-diagnostics
+          path: |
+            output/logs/
+            output/verification/**/*.json
+            output/verification/**/*.csv
+            output/verification/**/*.log
+            output/assets/.wix/msi-validation.log
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload verified release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-x64
+          path: |
+            output/assets/*.msi
+            output/assets/*.exe
+            output/assets/*.zip
+            output/assets/SHA256SUMS.txt
+            output/RELEASE-NOTES.md
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.build.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Download verified files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-windows-x64
+          path: release
+
+      - name: Publish release after checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release/assets
+          sha256sum --check SHA256SUMS.txt
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/winshell-release-draft 2>/dev/null; then
+            test "$(cat /tmp/winshell-release-draft)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "WinShell $RELEASE_VERSION" --notes-file ../RELEASE-NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" \
+            "WinShell-$RELEASE_VERSION-win-x64.msi" \
+            "WinShell-$RELEASE_VERSION-win-x64-setup.exe" \
+            "WinShell-$RELEASE_VERSION-win-x64-portable.zip" SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --notes-file ../RELEASE-NOTES.md --draft=false --latest
